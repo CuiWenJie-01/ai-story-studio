@@ -1,0 +1,66 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "旭言AI",
+  "version": "0.1.0",
+  "identifier": "com.xuyan.ai",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "旭言AI",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 1200,
+        "minHeight": 700,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: https: http: data: blob:; media-src 'self' https: http: blob:; connect-src 'self' https: http: ws: wss:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$HOME/**",
+          "$DOCUMENT/**",
+          "$DESKTOP/**",
+          "$DOWNLOAD/**",
+          "C:/**",
+          "D:/**",
+          "E:/**"
+        ]
+      }
+    },
+    "withGlobalTauri": true
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "Hefei Xuyan",
+    "copyright": "Hefei Xuyan Cultural Media Co., Ltd.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "installMode": "currentUser",
+        "languages": ["SimpChinese", "English"],
+        "installerHooks": "nsis-hooks.nsi"
+      }
+    },
+    "resources": {
+      "binaries/ffmpeg-7.1.1-essentials_build/bin/*": "binaries/ffmpeg-7.1.1-essentials_build/bin/"
+    }
+  }
+}

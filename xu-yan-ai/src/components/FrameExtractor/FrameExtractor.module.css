@@ -1,0 +1,137 @@
+.container {
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  font-size: 14px;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.info {
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm);
+}
+
+.infoRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.label {
+  color: var(--color-text-secondary);
+  min-width: 70px;
+}
+
+.value {
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.targetExists {
+  color: #10b981;
+  font-size: 12px;
+  margin-left: var(--spacing-xs);
+}
+
+.targetNotExists {
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+  margin-left: var(--spacing-xs);
+}
+
+.hasVideo {
+  color: #10b981;
+}
+
+.noVideo {
+  color: var(--color-text-tertiary);
+}
+
+.noSelection {
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+  text-align: center;
+  padding: var(--spacing-sm);
+}
+
+.result {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+}
+
+.result.success {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+}
+
+.result.error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.extractBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.extractBtn:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.extractBtn:disabled {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-tertiary);
+  cursor: not-allowed;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
