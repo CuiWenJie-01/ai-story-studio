@@ -24,8 +24,9 @@ fn main() {
 }
 
 fn start_embedded_server(app: &tauri::AppHandle) {
-    // 获取应用资源目录
+    // 获取应用资源目录，并转换为标准路径（去除 Windows UNC 前缀）
     let resource_dir = app.path().resource_dir().unwrap_or_default();
+    let resource_dir = dunce::simplified(&resource_dir).to_path_buf();
     
     // 尝试多种方式找到 node 和后端脚本
     let possible_node_paths = vec![
