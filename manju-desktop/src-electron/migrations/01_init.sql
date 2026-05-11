@@ -1,3 +1,5 @@
+-- 最小初始表结构，与 backend-node 业务代码对齐（若无 backend-node/migrations 则使用本文件）
+
 CREATE TABLE IF NOT EXISTS dramas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL DEFAULT '',
@@ -136,7 +138,6 @@ CREATE TABLE IF NOT EXISTS ai_service_configs (
   api_key TEXT,
   model TEXT,
   default_model TEXT,
-  api_protocol TEXT,
   endpoint TEXT,
   query_endpoint TEXT,
   priority INTEGER DEFAULT 0,
@@ -287,38 +288,6 @@ CREATE TABLE IF NOT EXISTS assets (
   duration REAL,
   image_gen_id INTEGER,
   video_gen_id INTEGER,
-  created_at TEXT,
-  updated_at TEXT,
-  deleted_at TEXT
-);
-
--- 新增表：settings（存储生成设置等）
-CREATE TABLE IF NOT EXISTS settings (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  key TEXT NOT NULL UNIQUE,
-  value TEXT,
-  created_at TEXT,
-  updated_at TEXT
-);
-
--- 新增表：prompt_overrides（提示词覆盖）
-CREATE TABLE IF NOT EXISTS prompt_overrides (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  key TEXT NOT NULL,
-  content TEXT,
-  created_at TEXT,
-  updated_at TEXT,
-  deleted_at TEXT
-);
-
--- 新增表：ai_model_map（业务场景模型映射）
-CREATE TABLE IF NOT EXISTS ai_model_map (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  key TEXT NOT NULL,
-  service_type TEXT DEFAULT 'text',
-  config_id INTEGER,
-  model_override TEXT,
-  description TEXT,
   created_at TEXT,
   updated_at TEXT,
   deleted_at TEXT
