@@ -110,9 +110,14 @@ class DatabaseWrapper {
       } else {
         this.db.run(sql);
       }
+      const rowsAffected = this.db.getRowsModified();
+      const lastInsertResult = this.db.exec('SELECT last_insert_rowid() AS id');
+      const lastInsertRowid = lastInsertResult && lastInsertResult.length > 0 && lastInsertResult[0].values && lastInsertResult[0].values.length > 0
+        ? lastInsertResult[0].values[0][0]
+        : 0;
       return {
-        rowsAffected: this.db.getRowsModified(),
-        lastInsertRowid: this.db.getLastInsertRowid()
+        rowsAffected,
+        lastInsertRowid
       };
     } catch (err) {
       console.error('SQL error:', err.message, 'SQL:', sql);
