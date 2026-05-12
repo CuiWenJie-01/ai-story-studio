@@ -18,14 +18,20 @@ function runOne(database, sql, file, index) {
   const s = stripLeadingComments(sql);
   if (!s) return;
   try {
-    database.exec(s);
+    // 兼容 better-sqlite3 和 sql.js
+    if (database.exec) {
+      database.exec(s);
+    } else if (database.run) {
+      database.run(s);
+    } else {
+      throw new Error('Database object does not have exec or run method');
+    }
     console.log('Ran migration:', file + (index >= 0 ? ' #' + (index + 1) : ''));
   } catch (err) {
     const msg = (err.message || '').toLowerCase();
-    if (err.code === 'SQLITE_ERROR' && (msg.includes('duplicate column') || msg.includes('already exists'))) {
+    if (msg.includes('duplicate column') || msg.includes('already exists')) {
       console.log('Skip (already exists):', file + (index >= 0 ? ' #' + (index + 1) : ''));
-    } else if (err.code === 'SQLITE_ERROR' && msg.includes('no such table')) {
-      // ALTER TABLE 遇到表不存在时，记录警告并跳过（启动后 ensureAllColumns 会兜底建表补列）
+    } else if (msg.includes('no such table')) {
       console.warn('Skip migration (table not found, will be ensured later):', file, '-', err.message);
     } else {
       throw err;
@@ -55,16 +61,32 @@ function runMigrations(database) {
   }
 }
 
-/**
- * 通用：确保某张表存在指定列，不存在则 ALTER TABLE ADD COLUMN。
- * @param {object} database - better-sqlite3 实例
- * @param {string} table - 表名
- * @param {Array<{name:string, type:string}>} columns - 要确保存在的列
- */
 function ensureColumns(database, table, columns) {
   let existing;
   try {
-    existing = database.prepare(`PRAGMA table_info(${table})`).all();
+    // 兼容 better-sqlite3 和 sql.js
+    let results;
+    if (database.exec) {
+      results = database.exec(`PRAGMA table_info(${table})`);
+    } else if (database.run) {
+      database.run(`PRAGMA table_info(${table})`);
+      results = [];
+    } else {
+      throw new Error('Database object does not have exec or run method');
+    }
+    
+    if (results && results.length > 0 && results[0].values) {
+      existing = results[0].values.map(row => ({
+        name: row[1],
+        type: row[2],
+        notNull: row[3] === 1,
+        defaultValue: row[4],
+        pk: row[5] === 1
+      }));
+    } else {
+      console.log(`ensureColumns: table ${table} not found, skip`);
+      return;
+    }
   } catch (err) {
     if ((err.message || '').toLowerCase().includes('no such table')) {
       console.log(`ensureColumns: table ${table} not found, skip`);
@@ -76,7 +98,12 @@ function ensureColumns(database, table, columns) {
   for (const col of columns) {
     if (names.has(col.name)) continue;
     try {
-      database.exec(`ALTER TABLE ${table} ADD COLUMN ${col.name} ${col.type}`);
+      // 兼容 better-sqlite3 和 sql.js
+      if (database.exec) {
+        database.exec(`ALTER TABLE ${table} ADD COLUMN ${col.name} ${col.type}`);
+      } else if (database.run) {
+        database.run(`ALTER TABLE ${table} ADD COLUMN ${col.name} ${col.type}`);
+      }
       console.log(`ensureColumns: added ${table}.${col.name} (${col.type})`);
     } catch (e) {
       if ((e.message || '').toLowerCase().includes('duplicate column')) {
@@ -88,14 +115,6 @@ function ensureColumns(database, table, columns) {
   }
 }
 
-/**
- * 全量兜底补列：覆盖所有表的所有业务列。
- * 对于旧数据库（用更早版本的 init 脚本创建、缺少部分列），
- * 在每次启动时自动补齐，避免 "no such column" 运行时错误。
- *
- * SQLite 不支持 ALTER TABLE ADD COLUMN ... NOT NULL（无默认值），
- * 所以原 schema 中 NOT NULL 的列在这里用 DEFAULT 兜底。
- */
 function ensureAllColumns(database) {
   // --- dramas ---
   ensureColumns(database, 'dramas', [
@@ -156,22 +175,22 @@ function ensureAllColumns(database) {
     { name: 'video_url',         type: 'TEXT' },
     { name: 'composed_image',    type: 'TEXT' },
     { name: 'result',            type: 'TEXT' },
-    { name: 'emotion',           type: 'TEXT' },               // 当前情绪（兴奋/悲伤/紧张等）
-    { name: 'emotion_intensity', type: 'INTEGER' },            // 情绪强度 3/2/1/0/-1
+    { name: 'emotion',           type: 'TEXT' },
+    { name: 'emotion_intensity', type: 'INTEGER' },
     { name: 'error_msg',         type: 'TEXT' },
-    { name: 'segment_index',     type: 'INTEGER DEFAULT 0' },  // 剧情段落索引（0-based）
-    { name: 'segment_title',     type: 'TEXT' },               // 剧情段落名称
-    { name: 'angle_h',           type: 'TEXT' },               // 水平方向（front/left/back/right...）
-    { name: 'angle_v',           type: 'TEXT' },               // 俯仰角度（worm/low/eye_level/high）
-    { name: 'angle_s',           type: 'TEXT' },               // 景别（close_up/medium/wide）
-    { name: 'lighting_style',    type: 'TEXT' },               // 灯光风格（natural/side/dramatic/golden_hour 等）
-    { name: 'depth_of_field',    type: 'TEXT' },               // 景深（shallow/medium/deep/extreme_shallow）
-    { name: 'polished_prompt',        type: 'TEXT' },               // 文字AI润色后的图片生成提示词（可编辑，生图时优先使用）
-    { name: 'continuity_snapshot',   type: 'TEXT' },               // JSON: 连戏状态快照 {characters:{name:{position,clothing,expression,props}},lighting}
-    { name: 'audio_local_path',      type: 'TEXT' },               // 对白 TTS 本地路径
-    { name: 'narration_audio_local_path', type: 'TEXT' },         // 解说旁白 TTS 本地路径
-    { name: 'creation_mode',     type: 'TEXT DEFAULT \'classic\'' }, // classic | universal
-    { name: 'universal_segment_text', type: 'TEXT' },              // 全能模式片段描述（@ 引用等）
+    { name: 'segment_index',     type: 'INTEGER DEFAULT 0' },
+    { name: 'segment_title',     type: 'TEXT' },
+    { name: 'angle_h',           type: 'TEXT' },
+    { name: 'angle_v',           type: 'TEXT' },
+    { name: 'angle_s',           type: 'TEXT' },
+    { name: 'lighting_style',    type: 'TEXT' },
+    { name: 'depth_of_field',    type: 'TEXT' },
+    { name: 'polished_prompt',        type: 'TEXT' },
+    { name: 'continuity_snapshot',   type: 'TEXT' },
+    { name: 'audio_local_path',      type: 'TEXT' },
+    { name: 'narration_audio_local_path', type: 'TEXT' },
+    { name: 'creation_mode',     type: 'TEXT DEFAULT \'classic\'' },
+    { name: 'universal_segment_text', type: 'TEXT' },
     { name: 'status',            type: 'TEXT DEFAULT \'draft\'' },
     { name: 'created_at',        type: 'TEXT' },
     { name: 'updated_at',        type: 'TEXT' },
@@ -192,14 +211,14 @@ function ensureAllColumns(database) {
     { name: 'voice_style',       type: 'TEXT' },
     { name: 'sort_order',        type: 'INTEGER DEFAULT 0' },
     { name: 'error_msg',         type: 'TEXT' },
-    { name: 'identity_anchors',  type: 'TEXT' },   // JSON: 6层视觉锚点（骨相/五官/辨识标记/色值/皮肤/发型）
-    { name: 'style_tokens',      type: 'TEXT' },   // 风格词 token 列表
-    { name: 'color_palette',     type: 'TEXT' },   // JSON: Hex 色值数组
-    { name: 'four_view_image_url', type: 'TEXT' }, // 四视图参考图 URL
-    { name: 'polished_prompt',   type: 'TEXT' },   // 文字AI润色后的完整图片生成提示词（可编辑，生图时直接使用）
-    { name: 'ref_image',         type: 'TEXT' },   // 用户上传的参考图（本地相对路径或 URL），独立于 AI 生成的主图
-    { name: 'stages',            type: 'TEXT' },   // JSON: 多阶段造型 [{episode_range:[1,3], appearance:"..."}]
-    { name: 'seedance2_asset', type: 'TEXT' },   // JSON: 即梦/Seedance2 素材库认证 hub_asset_id / asset_url 等
+    { name: 'identity_anchors',  type: 'TEXT' },
+    { name: 'style_tokens',      type: 'TEXT' },
+    { name: 'color_palette',     type: 'TEXT' },
+    { name: 'four_view_image_url', type: 'TEXT' },
+    { name: 'polished_prompt',   type: 'TEXT' },
+    { name: 'ref_image',         type: 'TEXT' },
+    { name: 'stages',            type: 'TEXT' },
+    { name: 'seedance2_asset', type: 'TEXT' },
     { name: 'created_at',        type: 'TEXT' },
     { name: 'updated_at',        type: 'TEXT' },
     { name: 'deleted_at',        type: 'TEXT' },
@@ -212,11 +231,11 @@ function ensureAllColumns(database) {
     { name: 'location',         type: 'TEXT' },
     { name: 'time',             type: 'TEXT' },
     { name: 'prompt',           type: 'TEXT' },
-    { name: 'polished_prompt',  type: 'TEXT' },  // 文字AI润色后的完整四视图图片提示词，生图时直接使用
+    { name: 'polished_prompt',  type: 'TEXT' },
     { name: 'image_url',        type: 'TEXT' },
     { name: 'local_path',       type: 'TEXT' },
     { name: 'extra_images',     type: 'TEXT' },
-    { name: 'ref_image',        type: 'TEXT' },  // 用户上传的参考图（本地相对路径或 URL）
+    { name: 'ref_image',        type: 'TEXT' },
     { name: 'storyboard_count', type: 'INTEGER DEFAULT 0' },
     { name: 'error_msg',        type: 'TEXT' },
     { name: 'status',           type: 'TEXT DEFAULT \'draft\'' },
@@ -236,14 +255,14 @@ function ensureAllColumns(database) {
     { name: 'image_url',    type: 'TEXT' },
     { name: 'local_path',   type: 'TEXT' },
     { name: 'extra_images', type: 'TEXT' },
-    { name: 'ref_image',    type: 'TEXT' },  // 用户上传的参考图（本地相对路径或 URL）
+    { name: 'ref_image',    type: 'TEXT' },
     { name: 'error_msg',    type: 'TEXT' },
     { name: 'created_at',   type: 'TEXT' },
     { name: 'updated_at',   type: 'TEXT' },
     { name: 'deleted_at',   type: 'TEXT' },
   ]);
 
-  // --- ai_service_configs ---（兜底建表：旧版 01_init.sql 可能未包含此表）
+  // --- ai_service_configs ---
   try {
     database.exec(`CREATE TABLE IF NOT EXISTS ai_service_configs (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -394,7 +413,7 @@ function ensureAllColumns(database) {
 
   // --- character_libraries ---
   ensureColumns(database, 'character_libraries', [
-    { name: 'drama_id',          type: 'INTEGER' },   // NULL = 全局素材库；有值 = 本剧专属
+    { name: 'drama_id',          type: 'INTEGER' },
     { name: 'name',              type: 'TEXT NOT NULL DEFAULT \'\'' },
     { name: 'category',          type: 'TEXT' },
     { name: 'image_url',         type: 'TEXT' },
@@ -403,10 +422,10 @@ function ensureAllColumns(database) {
     { name: 'appearance',        type: 'TEXT' },
     { name: 'tags',              type: 'TEXT' },
     { name: 'source_type',       type: 'TEXT' },
-    { name: 'identity_anchors',  type: 'TEXT' },   // JSON: 6层视觉锚点（骨相/五官/辨识标记/色值/皮肤/发型）
-    { name: 'style_tokens',      type: 'TEXT' },   // 风格词 token 列表
-    { name: 'color_palette',     type: 'TEXT' },   // JSON: Hex 色值数组
-    { name: 'four_view_image_url', type: 'TEXT' }, // 四视图参考图 URL（分镜图生图参考用）
+    { name: 'identity_anchors',  type: 'TEXT' },
+    { name: 'style_tokens',      type: 'TEXT' },
+    { name: 'color_palette',     type: 'TEXT' },
+    { name: 'four_view_image_url', type: 'TEXT' },
     { name: 'created_at',        type: 'TEXT' },
     { name: 'updated_at',        type: 'TEXT' },
     { name: 'deleted_at',        type: 'TEXT' },
@@ -414,7 +433,7 @@ function ensureAllColumns(database) {
 
   // --- scene_libraries ---
   ensureColumns(database, 'scene_libraries', [
-    { name: 'drama_id',    type: 'INTEGER' },   // NULL = 全局素材库
+    { name: 'drama_id',    type: 'INTEGER' },
     { name: 'location',    type: 'TEXT NOT NULL DEFAULT \'\'' },
     { name: 'time',        type: 'TEXT' },
     { name: 'prompt',      type: 'TEXT' },
@@ -431,7 +450,7 @@ function ensureAllColumns(database) {
 
   // --- prop_libraries ---
   ensureColumns(database, 'prop_libraries', [
-    { name: 'drama_id',    type: 'INTEGER' },   // NULL = 全局素材库
+    { name: 'drama_id',    type: 'INTEGER' },
     { name: 'name',        type: 'TEXT NOT NULL DEFAULT \'\'' },
     { name: 'description', type: 'TEXT' },
     { name: 'prompt',      type: 'TEXT' },
@@ -460,7 +479,7 @@ function ensureAllColumns(database) {
     { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
   ]);
 
-  // --- ai_model_map（业务场景→模型路由映射表） ---
+  // --- ai_model_map ---
   try {
     database.exec(`CREATE TABLE IF NOT EXISTS ai_model_map (
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -483,7 +502,7 @@ function ensureAllColumns(database) {
     { name: 'updated_at',     type: 'TEXT NOT NULL DEFAULT \'\'' },
   ]);
 
-  // --- storyboard_characters（分镜与角色库的关联表） ---
+  // --- storyboard_characters ---
   try {
     database.exec(`CREATE TABLE IF NOT EXISTS storyboard_characters (
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -493,7 +512,7 @@ function ensureAllColumns(database) {
     )`);
   } catch (_) {}
 
-  // --- global_settings（全局键值设置表） ---
+  // --- global_settings ---
   try {
     database.exec(`CREATE TABLE IF NOT EXISTS global_settings (
       key        TEXT PRIMARY KEY,
@@ -503,15 +522,14 @@ function ensureAllColumns(database) {
   } catch (_) {}
 }
 
-/** 对已打开的 database 执行迁移与兜底补列（供 app 启动时调用） */
 function runMigrationsAndEnsure(database) {
   runMigrations(database);
   ensureAllColumns(database);
 }
 
-function main() {
+async function main() {
   const config = loadConfig();
-  const database = getDb(config.database);
+  const database = await getDb(config.database);
   runMigrationsAndEnsure(database);
   console.log('Migrations complete.');
 }

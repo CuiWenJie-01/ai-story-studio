@@ -1,0 +1,62 @@
+{
+  "name": "manju",
+  "version": "1.0.0",
+  "description": "AI Story Studio - Desktop Application",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev:web": "cd web && npm run dev",
+    "dev:node": "cd node && npm run dev",
+    "electron:dev": "concurrently --names \"NODE,WEB,ELECTRON\" --prefixColors \"yellow,cyan,magenta\" \"npm run dev:node\" \"npm run dev:web\" \"wait-on http://localhost:3013 && cross-env NODE_ENV=development electron .\"",
+    "electron:build": "npm run build:web && electron-builder",
+    "build:web": "cd web && npm run build",
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^42.0.1",
+    "electron-builder": "^26.8.1",
+    "electron-rebuild": "^3.2.9",
+    "wait-on": "^9.0.10"
+  },
+  "build": {
+    "appId": "com.aistorystudio.manju",
+    "productName": "AI Story Studio",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "node/**/*",
+      "web/dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "node/data",
+        "to": "data",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "asar": true,
+    "asarUnpack": [
+      "node/**/*"
+    ]
+  }
+}

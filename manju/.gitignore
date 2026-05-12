@@ -74,3 +74,20 @@ pids/
 *.pid
 *.seed
 *.pid.lock
+
+# Electron build outputs
+release/
+dist-electron/
+electron-builder.json5
+
+# App packages
+*.exe
+*.dmg
+*.deb
+*.rpm
+*.snap
+
+# Native modules build artifacts
+*.node
+build/Release/
+build/Debug/

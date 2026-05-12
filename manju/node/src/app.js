@@ -7,9 +7,9 @@ const { loadConfig } = require('./config/index.js');
 const logger = require('./logger.js');
 const { setupRouter } = require('./routes/index.js');
 
-function createApp() {
+async function createApp() {
   const config = loadConfig();
-  const db = getDb(config.database);
+  const db = await getDb(config.database);
   const { runMigrationsAndEnsure } = require('./db/migrate.js');
   runMigrationsAndEnsure(db);
 
@@ -58,12 +58,30 @@ function createApp() {
 
   app.use('/api/v1', setupRouter(config, db, log));
 
-  // 前端静态资源（sxy：web/dist）；Electron 打包时可设 WEB_DIST_PATH
-  const webDist = process.env.WEB_DIST_PATH || path.join(process.cwd(), '..', 'frontweb', 'dist');
-  console.log('webDist', webDist);
-  if (fs.existsSync(webDist)) {
+  // 前端静态资源
+  let webDist;
+  if (process.env.WEB_DIST_PATH) {
+    webDist = process.env.WEB_DIST_PATH;
+    console.log('[App] Using WEB_DIST_PATH from env:', webDist);
+  } else {
+    // Electron 打包环境下探测
+    const tryPaths = [
+      path.join(process.cwd(), '..', 'frontweb', 'dist'),
+      path.join(process.cwd(), '..', 'web', 'dist'),
+    ];
+    for (const p of tryPaths) {
+      if (fs.existsSync(p)) {
+        webDist = p;
+        break;
+      }
+    }
+  }
+  
+  console.log('[App] Serving frontend from:', webDist);
+  
+  if (webDist && fs.existsSync(webDist)) {
     app.use('/assets', express.static(path.join(webDist, 'assets')));
-    // 服务 dist 根目录的静态文件（如 wx.jpg、favicon.ico 等）
+    // 服务 dist 根目录的静态文件
     app.use(express.static(webDist, { index: false }));
     app.get('/favicon.ico', (req, res) => {
       const fav = path.join(webDist, 'favicon.ico');
@@ -81,7 +99,7 @@ function createApp() {
       res.send(
         '<!DOCTYPE html><html><head><meta charset="utf-8"><title>manju</title></head><body>' +
           '<h1>manju API</h1><p>后端已启动。请先构建前端：</p>' +
-          '<pre>cd web &amp;&amp; pnpm install &amp;&amp; pnpm build</pre>' +
+          '<pre>cd web && pnpm install && pnpm build</pre>' +
           '<p>然后将 <code>web/dist</code> 放到与 backend-node 同级的 <code>web/dist</code>，或访问 <a href="/health">/health</a> 检查接口。</p></body></html>'
       );
     });
