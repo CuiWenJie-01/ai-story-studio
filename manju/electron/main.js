@@ -229,9 +229,15 @@ app.whenReady().then(async () => {
   log('[APP] Exec path:', process.execPath);
 
   try {
-    await startNodeServer();
-    log('[APP] Server ready, creating window...');
-    createWindow();
+    if (isDev) {
+      log('[APP] Development mode, skipping embedded server...');
+      log('[APP] Waiting for dev servers...');
+      createWindow();
+    } else {
+      await startNodeServer();
+      log('[APP] Server ready, creating window...');
+      createWindow();
+    }
   } catch (err) {
     log('[ERROR] Failed to start:', err.message);
     log('[ERROR] Error stack:', err.stack);
