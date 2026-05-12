@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
 let mainWindow = null;
 let isQuitting = false;
+let serverPort = 5679;
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -98,12 +99,12 @@ function startNodeServer() {
       const { app: serverApp, config } = await createApp();
       log('[START] App created successfully');
       
-      const port = 5679;
       const host = '127.0.0.1';
       
-      log('[START] Starting server on port:', port);
-      const server = serverApp.listen(port, host, () => {
-        log('[START] Server started on port', port);
+      log('[START] Starting server on dynamic port...');
+      const server = serverApp.listen(0, host, () => {
+        serverPort = server.address().port;
+        log('[START] Server started on port', serverPort);
         resolve();
       });
       
@@ -157,14 +158,23 @@ function createWindow() {
     mainWindow.loadURL('http://localhost:3013');
     mainWindow.webContents.openDevTools();
   } else {
-    log('[WINDOW] Loading production URL: http://127.0.0.1:5679/');
-    mainWindow.loadURL('http://127.0.0.1:5679/');
+    const url = `http://127.0.0.1:${serverPort}/`;
+    log('[WINDOW] Loading production URL:', url);
+    mainWindow.loadURL(url);
   }
 
   mainWindow.on('close', (e) => {
     if (!isQuitting) {
-      e.preventDefault();
-      mainWindow.hide();
+      isQuitting = true;
+      if (global.server) {
+        log('[APP] Closing server...');
+        global.server.close(() => {
+          log('[APP] Server closed, exiting...');
+          app.exit(0);
+        });
+      } else {
+        app.exit(0);
+      }
     }
   });
 
@@ -179,6 +189,34 @@ function createWindow() {
   
   log('[WINDOW] Browser window created');
 }
+
+function forceQuit() {
+  log('[APP] Force quitting...');
+  isQuitting = true;
+  
+  if (global.server) {
+    log('[APP] Closing server...');
+    global.server.close(() => {
+      log('[APP] Server closed, exiting...');
+      app.exit(0);
+    });
+  } else {
+    app.exit(0);
+  }
+  
+  setTimeout(() => {
+    process.exit(0);
+  }, 3000);
+}
+
+app.requestSingleInstanceLock();
+
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
 
 app.whenReady().then(async () => {
   initLog();
@@ -198,7 +236,7 @@ app.whenReady().then(async () => {
     log('[ERROR] Error stack:', err.stack);
     setTimeout(() => {
       app.quit();
-    }, 1000);
+    }, 3000);
   }
 
   app.on('activate', () => {
@@ -213,15 +251,12 @@ app.whenReady().then(async () => {
 app.on('before-quit', () => {
   log('[APP] Before quit');
   isQuitting = true;
-  if (global.server) {
-    global.server.close();
-  }
 });
 
 app.on('window-all-closed', () => {
   log('[APP] All windows closed');
   if (process.platform !== 'darwin') {
-    app.quit();
+    forceQuit();
   }
 });
 
@@ -236,6 +271,7 @@ ipcMain.handle('get-platform', () => {
 process.on('uncaughtException', (err) => {
   log('[FATAL] Uncaught exception:', err.message);
   log('[FATAL] Error stack:', err.stack);
+  forceQuit();
 });
 
 process.on('unhandledRejection', (reason, promise) => {
