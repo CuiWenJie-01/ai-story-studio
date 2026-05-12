@@ -4,6 +4,7 @@ const fs = require('fs');
 
 let db = null;
 let SQL = null;
+let dbFilePath = null;
 
 class Statement {
   constructor(db, sql) {
@@ -49,13 +50,25 @@ class Statement {
   }
 }
 
+function saveDb() {
+  if (!db || !dbFilePath) return;
+  try {
+    const raw = db.db.export();
+    fs.writeFileSync(dbFilePath, Buffer.from(raw));
+  } catch (err) {
+    console.error('Failed to persist SQLite database:', err);
+  }
+}
+
 class DatabaseWrapper {
   constructor(sqlDb) {
     this.db = sqlDb;
   }
 
   exec(sql) {
-    return this.db.exec(sql);
+    const result = this.db.exec(sql);
+    saveDb();
+    return result;
   }
 
   prepare(sql) {
@@ -63,7 +76,15 @@ class DatabaseWrapper {
   }
 
   run(sql, ...params) {
-    return this.db.run(sql, params);
+    if (params && params.length > 0) {
+      return this.runWithParams(sql, params);
+    }
+    const result = this.db.run(sql);
+    saveDb();
+    return {
+      changes: this.db.getRowsModified ? this.db.getRowsModified() : 0,
+      lastInsertRowid: 0
+    };
   }
 
   execWithParams(sql, params) {
@@ -84,9 +105,13 @@ class DatabaseWrapper {
             processedSql = processedSql.replace(/\?/, param.toString());
           }
         });
-        return this.db.exec(processedSql);
+        const result = this.db.exec(processedSql);
+        saveDb();
+        return result;
       }
-      return this.db.exec(sql);
+      const result = this.db.exec(sql);
+      saveDb();
+      return result;
     } catch (err) {
       console.error('SQL error:', err.message, 'SQL:', sql);
       throw err;
@@ -115,6 +140,7 @@ class DatabaseWrapper {
       const lastInsertRowid = lastInsertResult && lastInsertResult.length > 0 && lastInsertResult[0].values && lastInsertResult[0].values.length > 0
         ? lastInsertResult[0].values[0][0]
         : 0;
+      saveDb();
       return {
         rowsAffected,
         lastInsertRowid
@@ -130,6 +156,7 @@ class DatabaseWrapper {
   }
 
   close() {
+    saveDb();
     this.db.close();
   }
 }
@@ -155,7 +182,8 @@ async function initDb(config) {
     });
   }
   
-  const dbPath = config.path;
+  const dbPath = path.isAbsolute(config.path) ? config.path : path.join(process.cwd(), config.path);
+  dbFilePath = dbPath;
   const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
