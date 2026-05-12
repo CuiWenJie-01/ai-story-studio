@@ -1,7 +1,7 @@
 {
   "name": "manju",
   "version": "1.0.0",
-  "description": "AI Story Studio - Desktop Application",
+  "description": "漫剧AI - Desktop Application",
   "main": "electron/main.js",
   "scripts": {
     "dev:web": "cd web && npm run dev",
@@ -21,7 +21,7 @@
   },
   "build": {
     "appId": "com.aistorystudio.manju",
-    "productName": "AI Story Studio",
+    "productName": "漫剧AI",
     "directories": {
       "output": "release"
     },

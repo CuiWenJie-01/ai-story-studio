@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog,Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -131,7 +131,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: 'AI Story Studio',
+    title: '漫剧AI',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -219,6 +219,7 @@ app.on('second-instance', () => {
 });
 
 app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null);
   initLog();
   log('[APP] App ready, starting...');
   log('[APP] isDev:', isDev);
