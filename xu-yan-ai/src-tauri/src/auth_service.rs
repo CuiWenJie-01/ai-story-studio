@@ -78,6 +78,27 @@ fn get_conn() -> Result<PooledConn, String> {
         .map_err(|e| format!("获取连接失败: {}", e))
 }
 
+fn ensure_sessions_table(conn: &mut PooledConn) -> Result<(), String> {
+    conn.exec_drop(
+        "CREATE TABLE IF NOT EXISTS user_sessions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            instance_id VARCHAR(64) NOT NULL,
+            session_token VARCHAR(64) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uk_user_instance (user_id, instance_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+        (),
+    ).map_err(|e| format!("创建会话表失败: {}", e))
+}
+
+fn get_online_count(conn: &mut PooledConn, user_id: u32) -> i32 {
+    conn.exec_first(
+        "SELECT COUNT(*) FROM user_sessions WHERE user_id = ?",
+        (&user_id,)
+    ).ok().flatten().unwrap_or(0)
+}
+
 fn generate_session_token() -> String {
     let mut rng = rand::thread_rng();
     let token: String = (0..32)
@@ -111,8 +132,8 @@ fn validate_account_format(account: &str) -> Result<(), String> {
     }
 }
 
-pub async fn login(account: String, password: String) -> AuthResponse {
-    println!("[Auth] 尝试登录: {}", account);
+pub async fn login(account: String, password: String, instance_id: String) -> AuthResponse {
+    println!("[Auth] 尝试登录: {} (实例: {})", account, instance_id);
     
     let mut conn = match get_conn() {
         Ok(c) => c,
@@ -126,11 +147,15 @@ pub async fn login(account: String, password: String) -> AuthResponse {
         }
     };
     
+    if let Err(e) = ensure_sessions_table(&mut conn) {
+        println!("[Auth] {}", e);
+    }
+    
     println!("[Auth] 数据库连接成功，查询用户...");
     
-    let result: Option<(u32, String, String, String, String, i32, i32, i32, Option<NaiveDate>, bool)> = conn
+    let result: Option<(u32, String, String, String, String, i32, i32, Option<NaiveDate>, bool)> = conn
         .exec_first(
-            "SELECT id, nickname, email, password, company, remaining_days, login_limit, online_count, last_deducted_date, is_admin FROM users WHERE account = ?",
+            "SELECT id, nickname, email, password, company, remaining_days, login_limit, last_deducted_date, is_admin FROM users WHERE account = ?",
             (&account,)
         )
         .ok()
@@ -139,15 +164,28 @@ pub async fn login(account: String, password: String) -> AuthResponse {
     println!("[Auth] 查询结果: {:?}", result.is_some());
     
     match result {
-        Some((id, nickname, email, hashed_password, company, mut remaining_days, login_limit, online_count, last_deducted_date, is_admin)) => {
+        Some((id, nickname, email, hashed_password, company, mut remaining_days, login_limit, last_deducted_date, is_admin)) => {
             match verify(&password, &hashed_password) {
                 Ok(valid) if valid => {
+                    let online_count = get_online_count(&mut conn, id);
+                    
                     if online_count >= login_limit {
-                        return AuthResponse {
-                            success: false,
-                            message: format!("该账号已达到登录上限({}/{})", online_count, login_limit),
-                            user: None,
-                        };
+                        // 检查是否是同一实例重复登录（允许替换）
+                        let existing_instance: Option<String> = conn
+                            .exec_first(
+                                "SELECT session_token FROM user_sessions WHERE user_id = ? AND instance_id = ?",
+                                (&id, &instance_id)
+                            )
+                            .ok()
+                            .flatten();
+                        
+                        if existing_instance.is_none() {
+                            return AuthResponse {
+                                success: false,
+                                message: format!("该账号已达到登录上限({}/{})", online_count, login_limit),
+                                user: None,
+                            };
+                        }
                     }
                     
                     let today = Utc::now().date_naive();
@@ -183,20 +221,19 @@ pub async fn login(account: String, password: String) -> AuthResponse {
                         .flatten()
                         .unwrap_or_default();
                     
-                    let update_result = conn.exec_drop(
-                        "UPDATE users SET online_count = online_count + 1, session_token = ? WHERE id = ?",
-                        (&session_token, &id)
+                    // 插入或替换该实例的会话记录
+                    let _ = conn.exec_drop(
+                        "INSERT INTO user_sessions (user_id, instance_id, session_token) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE session_token = ?",
+                        (&id, &instance_id, &session_token, &session_token)
                     );
                     
-                    if update_result.is_err() {
-                        return AuthResponse {
-                            success: false,
-                            message: "更新登录状态失败".to_string(),
-                            user: None,
-                        };
-                    }
+                    let new_online_count = get_online_count(&mut conn, id);
+                    let _ = conn.exec_drop(
+                        "UPDATE users SET online_count = ? WHERE id = ?",
+                        (&new_online_count, &id)
+                    );
                     
-                    println!("[Auth] 登录成功: {} (剩余{}天, 在线{}/{})", nickname, remaining_days, online_count + 1, login_limit);
+                    println!("[Auth] 登录成功: {} (剩余{}天, 在线{}/{})", nickname, remaining_days, new_online_count, login_limit);
                     
                     AuthResponse {
                         success: true,
@@ -210,9 +247,9 @@ pub async fn login(account: String, password: String) -> AuthResponse {
                             department,
                             remaining_days,
                             login_limit,
-                            online_count: online_count + 1,
+                            online_count: new_online_count,
                             is_admin,
-                            password_hash: Some(hashed_password), // 返回密码哈希供前端存储
+                            password_hash: Some(hashed_password),
                         }),
                     }
                 }
@@ -378,8 +415,8 @@ pub async fn register(
     }
 }
 
-pub async fn logout(account: &str) -> AuthResponse {
-    println!("[Auth] 尝试退出登录: {}", account);
+pub async fn logout(account: &str, instance_id: &str) -> AuthResponse {
+    println!("[Auth] 尝试退出登录: {} (实例: {})", account, instance_id);
     
     let mut conn = match get_conn() {
         Ok(c) => c,
@@ -390,12 +427,30 @@ pub async fn logout(account: &str) -> AuthResponse {
         },
     };
     
-    let _ = conn.exec_drop(
-        "UPDATE users SET online_count = GREATEST(0, online_count - 1), session_token = NULL WHERE account = ?",
-        (&account,)
-    );
-    
-    println!("[Auth] 退出登录成功: {}", account);
+    if let Err(_) = ensure_sessions_table(&mut conn) {}
+
+    // 获取 user_id
+    let user_id: Option<u32> = conn
+        .exec_first("SELECT id FROM users WHERE account = ?", (&account,))
+        .ok()
+        .flatten();
+
+    if let Some(uid) = user_id {
+        let _ = conn.exec_drop(
+            "DELETE FROM user_sessions WHERE user_id = ? AND instance_id = ?",
+            (&uid, &instance_id)
+        );
+        
+        let new_online_count = get_online_count(&mut conn, uid);
+        let _ = conn.exec_drop(
+            "UPDATE users SET online_count = ? WHERE id = ?",
+            (&new_online_count, &uid)
+        );
+        
+        println!("[Auth] 退出登录成功: {} (剩余在线: {})", account, new_online_count);
+    } else {
+        println!("[Auth] 退出登录: 用户 {} 不存在", account);
+    }
     
     AuthResponse {
         success: true,
@@ -761,8 +816,8 @@ pub async fn tauri_verify_user_status(account: String, stored_hash: String) -> R
 }
 
 #[tauri::command]
-pub async fn tauri_login(account: String, password: String) -> AuthResponse {
-    login(account, password).await
+pub async fn tauri_login(account: String, password: String, instance_id: String) -> AuthResponse {
+    login(account, password, instance_id).await
 }
 
 #[tauri::command]
@@ -827,8 +882,8 @@ pub async fn tauri_get_user_email(account: String) -> GetUserEmailResponse {
 }
 
 #[tauri::command]
-pub async fn tauri_logout(account: String) -> AuthResponse {
-    logout(&account).await
+pub async fn tauri_logout(account: String, instance_id: String) -> AuthResponse {
+    logout(&account, &instance_id).await
 }
 
 #[tauri::command]
@@ -1076,6 +1131,237 @@ pub async fn tauri_delete_user(user_id: u32) -> DeleteUserResponse {
             DeleteUserResponse {
                 success: false,
                 message: format!("删除失败: {}", e),
+            }
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct ForceLogoutResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+#[tauri::command]
+pub async fn tauri_force_logout(account: String, instance_id: String) -> ForceLogoutResponse {
+    println!("[Auth] 强制退出登录: {} (实例: {})", account, instance_id);
+
+    let mut conn = match get_conn() {
+        Ok(c) => c,
+        Err(e) => {
+            println!("[Auth] 数据库连接失败: {}", e);
+            return ForceLogoutResponse {
+                success: false,
+                message: e,
+            };
+        }
+    };
+
+    if let Err(_) = ensure_sessions_table(&mut conn) {}
+
+    let user_id: Option<u32> = conn
+        .exec_first("SELECT id FROM users WHERE account = ?", (&account,))
+        .ok()
+        .flatten();
+
+    match user_id {
+        Some(uid) => {
+            let _ = conn.exec_drop(
+                "DELETE FROM user_sessions WHERE user_id = ? AND instance_id = ?",
+                (&uid, &instance_id)
+            );
+            
+            let new_online_count = get_online_count(&mut conn, uid);
+            let _ = conn.exec_drop(
+                "UPDATE users SET online_count = ? WHERE id = ?",
+                (&new_online_count, &uid)
+            );
+            
+            println!("[Auth] 强制退出登录成功: {} (剩余在线: {})", account, new_online_count);
+            ForceLogoutResponse {
+                success: true,
+                message: format!("强制退出成功，剩余在线: {}", new_online_count),
+            }
+        }
+        None => {
+            println!("[Auth] 强制退出登录: 用户 {} 不存在", account);
+            ForceLogoutResponse {
+                success: false,
+                message: "用户不存在".to_string(),
+            }
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct ResetOnlineCountResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+#[tauri::command]
+pub async fn tauri_reset_online_count(user_id: u32) -> ResetOnlineCountResponse {
+    println!("[Auth] 重置用户在线数: {}", user_id);
+
+    let mut conn = match get_conn() {
+        Ok(c) => c,
+        Err(e) => {
+            println!("[Auth] 数据库连接失败: {}", e);
+            return ResetOnlineCountResponse {
+                success: false,
+                message: e,
+            };
+        }
+    };
+
+    if let Err(_) = ensure_sessions_table(&mut conn) {}
+
+    let exists: Option<i32> = conn
+        .exec_first("SELECT id FROM users WHERE id = ?", (&user_id,))
+        .ok()
+        .flatten();
+
+    if exists.is_none() {
+        return ResetOnlineCountResponse {
+            success: false,
+            message: "用户不存在".to_string(),
+        };
+    }
+
+    let _ = conn.exec_drop(
+        "DELETE FROM user_sessions WHERE user_id = ?",
+        (&user_id,)
+    );
+
+    let _ = conn.exec_drop(
+        "UPDATE users SET online_count = 0 WHERE id = ?",
+        (&user_id,)
+    );
+
+    println!("[Auth] 用户 {} 在线数已重置为0", user_id);
+    ResetOnlineCountResponse {
+        success: true,
+        message: "在线数已重置为0".to_string(),
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct RestoreSessionResponse {
+    pub success: bool,
+    pub message: String,
+    pub user: Option<User>,
+}
+
+#[tauri::command]
+pub async fn tauri_restore_session(account: String, instance_id: String) -> RestoreSessionResponse {
+    println!("[Auth] 恢复会话: {} (实例: {})", account, instance_id);
+
+    let mut conn = match get_conn() {
+        Ok(c) => c,
+        Err(e) => {
+            println!("[Auth] 数据库连接失败: {}", e);
+            return RestoreSessionResponse {
+                success: false,
+                message: e,
+                user: None,
+            };
+        }
+    };
+
+    if let Err(e) = ensure_sessions_table(&mut conn) {
+        println!("[Auth] {}", e);
+    }
+
+    let result: Option<(u32, String, String, String, String, i32, i32, Option<NaiveDate>, bool)> = conn
+        .exec_first(
+            "SELECT id, nickname, email, company, department, remaining_days, login_limit, last_deducted_date, is_admin FROM users WHERE account = ?",
+            (&account,)
+        )
+        .ok()
+        .flatten();
+
+    match result {
+        Some((id, nickname, email, company, department, mut remaining_days, login_limit, last_deducted_date, is_admin)) => {
+            let today = Utc::now().date_naive();
+            let today_str = today.format("%Y-%m-%d").to_string();
+
+            if let Some(last_date) = last_deducted_date {
+                if last_date < today {
+                    let days_to_deduct = (today - last_date).num_days() as i32;
+                    if days_to_deduct > 0 {
+                        remaining_days = (remaining_days - days_to_deduct).max(0);
+                        let _ = conn.exec_drop(
+                            "UPDATE users SET remaining_days = ?, last_deducted_date = ? WHERE id = ?",
+                            (&remaining_days, &today_str, &id)
+                        );
+                    }
+                }
+            } else {
+                let _ = conn.exec_drop(
+                    "UPDATE users SET last_deducted_date = ? WHERE id = ?",
+                    (&today_str, &id)
+                );
+            }
+
+            let online_count = get_online_count(&mut conn, id);
+
+            if online_count >= login_limit {
+                let existing_instance: Option<String> = conn
+                    .exec_first(
+                        "SELECT session_token FROM user_sessions WHERE user_id = ? AND instance_id = ?",
+                        (&id, &instance_id)
+                    )
+                    .ok()
+                    .flatten();
+
+                if existing_instance.is_none() {
+                    println!("[Auth] 恢复会话: {} 已达登录上限({}/{})，且非已有实例", account, online_count, login_limit);
+                    return RestoreSessionResponse {
+                        success: false,
+                        message: format!("已达登录上限({}/{})", online_count, login_limit),
+                        user: None,
+                    };
+                }
+            }
+
+            let session_token = generate_session_token();
+            let _ = conn.exec_drop(
+                "INSERT INTO user_sessions (user_id, instance_id, session_token) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE session_token = ?",
+                (&id, &instance_id, &session_token, &session_token)
+            );
+
+            let new_online_count = get_online_count(&mut conn, id);
+            let _ = conn.exec_drop(
+                "UPDATE users SET online_count = ? WHERE id = ?",
+                (&new_online_count, &id)
+            );
+
+            println!("[Auth] 恢复会话成功: {} (在线 {}/{})", account, new_online_count, login_limit);
+
+            RestoreSessionResponse {
+                success: true,
+                message: "会话恢复成功".to_string(),
+                user: Some(User {
+                    id,
+                    nickname,
+                    account,
+                    email,
+                    company,
+                    department,
+                    remaining_days,
+                    login_limit,
+                    online_count: new_online_count,
+                    is_admin,
+                    password_hash: None,
+                }),
+            }
+        }
+        None => {
+            println!("[Auth] 恢复会话: 用户 {} 不存在", account);
+            RestoreSessionResponse {
+                success: false,
+                message: "用户不存在".to_string(),
+                user: None,
             }
         }
     }

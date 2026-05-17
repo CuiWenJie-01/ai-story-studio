@@ -1,6 +1,7 @@
 import { Image, Video, Mic, Music, Sparkles, Wallet, Loader2 } from 'lucide-react'
-import { useState, useCallback } from 'react'
-import type { WorkType } from '../../types'
+import { useState, useCallback, useEffect } from 'react'
+import { invoke } from '@tauri-apps/api/core'
+import type { WorkType, Changelog } from '../../types'
 import ApiSelector from '../ApiSelector'
 import { useAppStore } from '../../store/appStore'
 import { API_PROVIDERS } from '../../types'
@@ -22,6 +23,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeMode, onModeChange }) => {
   const [isLoadingWallet, setIsLoadingWallet] = useState(false)
   const [seedanceTaskCount, setSeedanceTaskCount] = useState<number | null>(null)
   const [isLoadingSeedance, setIsLoadingSeedance] = useState(false)
+  const [appVersion, setAppVersion] = useState<string>('1.4.0')
 
   const imageApiProvider = useAppStore(state => state.imageApiProvider)
   const videoApiProvider = useAppStore(state => state.videoApiProvider)
@@ -36,6 +38,33 @@ const Sidebar: React.FC<SidebarProps> = ({ activeMode, onModeChange }) => {
   const getApiSelectorMode = (): 'image' | 'video' => {
     return activeMode === 'video' ? 'video' : 'image'
   }
+
+  useEffect(() => {
+    const fetchLatestVersion = async () => {
+      try {
+        const response = await invoke<{ success: boolean; message: string; data: Changelog[] | null }>('tauri_get_changelogs')
+        if (response.success && response.data && response.data.length > 0) {
+          const sortedChangelogs = [...response.data].sort((a, b) => {
+            const versionA = a.version.replace(/^v/, '').split('.').map(Number)
+            const versionB = b.version.replace(/^v/, '').split('.').map(Number)
+            for (let i = 0; i < Math.max(versionA.length, versionB.length); i++) {
+              const diff = (versionA[i] || 0) - (versionB[i] || 0)
+              if (diff !== 0) return -diff
+            }
+            return 0
+          })
+          const latestVersion = sortedChangelogs[0]?.version
+          if (latestVersion) {
+            setAppVersion(latestVersion.replace(/^v/, ''))
+          }
+        }
+      } catch (error) {
+        console.error('[Sidebar] 获取版本号失败:', error)
+      }
+    }
+
+    fetchLatestVersion()
+  }, [])
 
   const handleLogoClick = useCallback(async () => {
     const runningHubConfig = apiConfigs.runninghub
@@ -163,7 +192,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeMode, onModeChange }) => {
         )}
 
         <div className={styles.version}>
-          <span>版本 1.4.0</span>
+          <span>版本 {appVersion}</span>
         </div>
       </aside>
 

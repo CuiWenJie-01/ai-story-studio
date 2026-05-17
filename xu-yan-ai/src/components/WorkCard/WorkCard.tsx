@@ -300,7 +300,7 @@ const WorkCard = ({ item, isActive, onClick }: WorkCardProps) => {
   }, [item.prompt])
 
   const charCount = localPrompt.length
-  const maxChars = 1000
+  const maxChars = 10000
   const displayShotNumber = String(item.shotNumber)
 
   const handlePromptChange = useCallback((prompt: string) => {
@@ -1367,6 +1367,8 @@ const WorkCard = ({ item, isActive, onClick }: WorkCardProps) => {
         const aspectRatioMap: Record<string, string> = {
           '9:16': '9:16',
           '16:9': '16:9',
+          '4:3': '4:3',
+          '3:4': '3:4',
           '1:1': '1:1',
         }
 
@@ -1685,6 +1687,8 @@ const WorkCard = ({ item, isActive, onClick }: WorkCardProps) => {
           const aspectRatioMap: Record<string, string> = {
             '9:16': '9:16',
             '16:9': '16:9',
+            '4:3': '4:3',
+            '3:4': '3:4',
             '1:1': '1:1',
           }
 
@@ -1931,6 +1935,8 @@ const WorkCard = ({ item, isActive, onClick }: WorkCardProps) => {
             const aspectRatioMap: Record<string, string> = {
               '9:16': '9:16',
               '16:9': '16:9',
+              '4:3': '4:3',
+              '3:4': '3:4',
             }
 
             if (cancelledRef.current) {
@@ -2931,6 +2937,8 @@ const WorkCard = ({ item, isActive, onClick }: WorkCardProps) => {
   const aspectRatioOptions = useMemo(() => [
     { value: '9:16', label: '9:16' },
     { value: '16:9', label: '16:9' },
+    { value: '4:3', label: '4:3' },
+    { value: '3:4', label: '3:4' },
   ], [])
 
   const handleResolutionChange = useCallback((value: string) => {
@@ -2938,7 +2946,7 @@ const WorkCard = ({ item, isActive, onClick }: WorkCardProps) => {
   }, [item.id, updateWorkItem])
 
   const handleAspectRatioChange = useCallback((value: string) => {
-    updateWorkItem(item.id, { aspectRatio: value as '9:16' | '16:9' })
+    updateWorkItem(item.id, { aspectRatio: value as '9:16' | '16:9' | '4:3' | '3:4' })
   }, [item.id, updateWorkItem])
 
   const handleDurationChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {

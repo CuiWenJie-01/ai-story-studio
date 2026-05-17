@@ -143,6 +143,8 @@ interface AppState {
   updateSeedance2Data: (updates: Partial<Seedance2Data>) => void
   resetSeedance2Data: () => void
 
+  resetGlobalState: () => void
+
   disableShotNavigator: boolean
   setDisableShotNavigator: (disable: boolean) => void
 
@@ -163,7 +165,7 @@ const defaultSettings: AppSettings = {
   imageApiEndpoint: '',
   videoApiEndpoint: '',
   savePath: '',
-  maxConcurrent: 5,
+  maxConcurrent: 2,
   quality: 'high',
   autoSave: true,
   promptFontSize: 14,
@@ -186,13 +188,14 @@ const defaultSeedance2Data: Seedance2Data = {
       duration: 15
     }
   ],
-  selectedProvider: 'volcengine',
+  selectedProvider: 'runninghub-enterprise',
   selectedModel: 'seedance-2.0',
   customModelId: '',
   selectedAspectRatio: '9:16',
   selectedResolution: '720p',
   selectedQualityStyle: 'cg-anime',
   globalPrompt: '',
+  generatedShotsCount: 0,
 }
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -211,7 +214,7 @@ const defaultVoiceState: VoiceItemState = {
 }
 
 const createWorkItem = (type: WorkType, shotNumber: number | string, excelData?: ExcelRowData): WorkItem => {
-  const getAspectRatio = (): '9:16' | '16:9' => {
+  const getAspectRatio = (): '9:16' | '16:9' | '4:3' | '3:4' => {
     if (excelData?.resolution) {
       const res = excelData.resolution.toLowerCase()
       if (res.includes('16:9') || res.includes('1920x1080') || res.includes('1080p')) {
@@ -220,7 +223,13 @@ const createWorkItem = (type: WorkType, shotNumber: number | string, excelData?:
       if (res.includes('9:16') || res.includes('1080x1920')) {
         return '9:16'
       }
+      if (res.includes('4:3') || res.includes('3:4')) {
+        return res.includes('3:4') ? '3:4' : '4:3'
+      }
       if (excelData.videoWidth && excelData.videoHeight) {
+        const ratio = excelData.videoWidth / excelData.videoHeight
+        if (Math.abs(ratio - 4 / 3) < 0.1) return '4:3'
+        if (Math.abs(ratio - 3 / 4) < 0.1) return '3:4'
         return excelData.videoWidth > excelData.videoHeight ? '16:9' : '9:16'
       }
     }
@@ -997,6 +1006,40 @@ export const useAppStore = create<AppState>()(
             clearAllLibraryCaches()
           }).catch(() => {})
         }
+        
+        // 如果切换到新项目，加载新项目的 seedance2Data
+        if (newPath && currentPath !== newPath) {
+          try {
+            const projectStorageService = (await import('../services/projectStorageService')).projectStorageService
+            const projectData = await projectStorageService.loadProjectData(newPath)
+            if (projectData?.seedance2Data) {
+              set({ 
+                activeTask: task,
+                seedance2Data: projectData.seedance2Data 
+              })
+              console.log('[AppStore] 切换项目时加载 seedance2Data:', task?.name)
+              return
+            } else {
+              // 新项目没有 seedance2Data，重置为默认值
+              set({ 
+                activeTask: task,
+                seedance2Data: { ...defaultSeedance2Data }
+              })
+              console.log('[AppStore] 新项目无 seedance2Data，已重置为默认值:', task?.name)
+              return
+            }
+          } catch (err) {
+            console.error('[AppStore] 切换项目时加载 seedance2Data 失败:', err)
+            // 加载失败时重置为默认值
+            set({ 
+              activeTask: task,
+              seedance2Data: { ...defaultSeedance2Data }
+            })
+            console.log('[AppStore] 加载失败，已重置 seedance2Data 为默认值:', task?.name)
+            return
+          }
+        }
+        
         set({ activeTask: task })
       },
 
@@ -1266,7 +1309,7 @@ export const useAppStore = create<AppState>()(
         queue: [],
         isProcessing: false,
         currentRunningCount: 0,
-        maxConcurrent: 5,
+        maxConcurrent: 2,
       },
       updateTaskQueueState: (state) => set({ taskQueueState: state }),
       getQueueLength: () => taskQueueManager.getQueueLength(),
@@ -1546,6 +1589,15 @@ export const useAppStore = create<AppState>()(
     },
     resetSeedance2Data: () => {
       set({ seedance2Data: { ...defaultSeedance2Data } })
+    },
+
+    resetGlobalState: () => {
+      set({
+        globalPrompt: '',
+        imageApiProvider: 'runninghub',
+        videoApiProvider: 'runninghub',
+        lastActiveMode: 'image',
+      })
     },
 
     disableShotNavigator: false,

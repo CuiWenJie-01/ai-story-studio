@@ -1,7 +1,6 @@
 import { DEFAULT_DIALOGUE_SHOT_PROMPT, DEFAULT_NARRATION_SHOT_PROMPT, DEFAULT_NOVEL_NARRATION_PROMPT } from '../services/yunwuService'
 
 const STORAGE_KEY = 'script_analysis_prompts'
-// 每次更新默认提示词时递增此版本号，用户端会自动使用新版本
 const PROMPT_VERSION = 10
 
 export type ShotPromptType = 'imageVideo' | 'textVideo' | 'sopVideo' | 'cinematicVision'

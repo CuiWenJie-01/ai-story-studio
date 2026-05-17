@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { X, Search, Users, RefreshCw, Trash2, Edit3, Check, XCircle, Shield, User as UserIcon } from 'lucide-react'
+import { X, Search, Users, RefreshCw, Trash2, Edit3, Check, XCircle, Shield, User as UserIcon, RotateCcw } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from '../../store/appStore'
 import type { User as UserType } from '../../types'
@@ -206,9 +206,28 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
       }
     } catch (err) {
       console.log('[UserManagement] 后端API未实现，本地删除模拟数据')
-      // 后端未实现时本地删除
       setUsers((prev) => prev.filter((u) => u.id !== userId))
       addToast({ type: 'success', title: '用户删除成功（本地）' })
+    }
+  }
+
+  // 重置用户在线数
+  const handleResetOnlineCount = async (userId: number, nickname: string) => {
+    if (!confirm(`确定要重置用户「${nickname}」的在线数为0吗？\n此操作用于修复因异常退出导致的在线数累积问题。`)) return
+
+    try {
+      const response = await invoke<{ success: boolean; message: string }>('tauri_reset_online_count', {
+        userId,
+      })
+
+      if (response.success) {
+        addToast({ type: 'success', title: '重置成功', message: response.message })
+        fetchUsers()
+      } else {
+        addToast({ type: 'error', title: '重置失败', message: response.message })
+      }
+    } catch (err) {
+      addToast({ type: 'error', title: '重置失败', message: err instanceof Error ? err.message : '未知错误' })
     }
   }
 
@@ -625,6 +644,24 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                           </td>
                           <td style={{ padding: '12px 8px', textAlign: 'right' }}>
                             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                              <button
+                                onClick={() => handleResetOnlineCount(user.id, user.nickname)}
+                                style={{
+                                  padding: '6px 12px',
+                                  background: user.online_count > 0 ? '#fef3c7' : 'var(--color-bg-tertiary)',
+                                  border: user.online_count > 0 ? '1px solid #fde68a' : '1px solid var(--color-border)',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  fontSize: '13px',
+                                  color: user.online_count > 0 ? '#d97706' : 'var(--color-text-tertiary)',
+                                }}
+                                title="重置在线数"
+                              >
+                                <RotateCcw size={14} />
+                              </button>
                               <button
                                 onClick={() => handleStartEdit(user)}
                                 style={{

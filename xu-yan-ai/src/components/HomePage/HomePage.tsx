@@ -57,6 +57,8 @@ const HomePage: React.FC<HomePageProps> = ({ onOpenProject, onOpenSettings }) =>
   const loadProjectData = useAppStore(state => state.loadProjectData)
   const restoreProjectData = useAppStore(state => state.restoreProjectData)
   const initDefaultItems = useAppStore(state => state.initDefaultItems)
+  const resetSeedance2Data = useAppStore(state => state.resetSeedance2Data)
+  const resetGlobalState = useAppStore(state => state.resetGlobalState)
   const [activeNav, setActiveNav] = useState<NavItem>('projects')
   const [searchQuery, setSearchQuery] = useState('')
   const [materialSearchQuery, setMaterialSearchQuery] = useState('')
@@ -97,7 +99,13 @@ const HomePage: React.FC<HomePageProps> = ({ onOpenProject, onOpenSettings }) =>
       if (hasCheckedRef.current) return
       hasCheckedRef.current = true
 
-      console.log('[HomePage] 启动验证开始...')
+      // 等待 Zustand persist 恢复完成
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      // 从 store 获取最新的 user 状态（而不是依赖 useEffect 的依赖）
+      const currentUser = useAppStore.getState().user
+
+      console.log('[HomePage] 启动验证开始...', { hasUser: !!currentUser, account: currentUser?.account })
 
       // 第一步：快速检测数据库连接（连接立即释放）
       try {
@@ -124,10 +132,10 @@ const HomePage: React.FC<HomePageProps> = ({ onOpenProject, onOpenSettings }) =>
       }
 
       // 第二步：如果有登录用户，验证用户状态（包括检查密码是否被修改）
-      if (user?.account) {
+      if (currentUser?.account) {
         // 检查是否有存储的密码哈希
-        if (!user.password_hash) {
-          console.error('[HomePage] 用户没有存储密码哈希，需要重新登录:', user.account)
+        if (!currentUser.password_hash) {
+          console.error('[HomePage] 用户没有存储密码哈希，需要重新登录:', currentUser.account)
           setUser(null)
           setCheckError('user_not_found')
           addToast({ type: 'error', title: '登录已过期', message: '请重新登录' })
@@ -136,11 +144,11 @@ const HomePage: React.FC<HomePageProps> = ({ onOpenProject, onOpenSettings }) =>
         }
         
         try {
-          const statusResult = await authService.verifyUserStatus(user.account, user.password_hash)
+          const statusResult = await authService.verifyUserStatus(currentUser.account, currentUser.password_hash)
           
-          // 如果用户无效（不存在或密码被修改），退出登录
+          // 如果用户无效（不存在或密码被修改），清除本地状态
           if (!statusResult.valid) {
-            console.error('[HomePage] 当前登录用户无效:', user.account, statusResult.message)
+            console.error('[HomePage] 当前登录用户无效:', currentUser.account, statusResult.message)
             setUser(null)
             setCheckError('user_not_found')
             addToast({ type: 'error', title: '登录已过期', message: statusResult.message })
@@ -157,6 +165,7 @@ const HomePage: React.FC<HomePageProps> = ({ onOpenProject, onOpenSettings }) =>
             setIsChecking(false)
             return
           }
+          // 网络错误时清除本地状态
           setUser(null)
           setCheckError('user_not_found')
           addToast({ type: 'error', title: '验证失败', message: '请重新登录' })
@@ -170,7 +179,7 @@ const HomePage: React.FC<HomePageProps> = ({ onOpenProject, onOpenSettings }) =>
     }
 
     verifyOnStartup()
-  }, [user?.account, setUser, addToast])
+  }, [setUser, addToast])
 
   // 关闭应用
   const handleCloseApp = useCallback(async () => {
@@ -444,6 +453,8 @@ const HomePage: React.FC<HomePageProps> = ({ onOpenProject, onOpenSettings }) =>
         setNewProjectName('')
         setSelectedStyle('ancient_realistic')
         setShowCreateDialog(false)
+        resetSeedance2Data()
+        resetGlobalState()
         setActiveTask(newTask)
         onOpenProject(newTask)
       }, 1000)
@@ -500,11 +511,15 @@ const HomePage: React.FC<HomePageProps> = ({ onOpenProject, onOpenSettings }) =>
         } else {
           // 项目数据文件不存在，初始化默认数据
           console.log('[HomePage] 项目数据文件不存在，初始化默认数据:', task.name)
+          resetSeedance2Data()
+          resetGlobalState()
           initDefaultItems()
         }
       } catch (err) {
         console.error('[HomePage] 加载项目数据失败:', err)
         // 加载失败时，尝试初始化默认数据
+        resetSeedance2Data()
+        resetGlobalState()
         initDefaultItems()
       }
       

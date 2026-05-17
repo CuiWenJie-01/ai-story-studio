@@ -164,9 +164,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onOpenR
     setLoading(true)
 
     try {
+      const instanceId = localStorage.getItem('xuyan_instance_id') || ''
       const response = await invoke<AuthResponse>('tauri_login', {
         account,
         password,
+        instanceId,
       })
 
       if (response.success && response.user) {

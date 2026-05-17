@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Settings, BookOpen, CheckCircle, Clock, AlertCircle, Home, Database, History } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -309,21 +309,9 @@ function App() {
         const unlisten = await mainWindow.onCloseRequested(async (event) => {
           const state = useAppStore.getState()
           
-          // 如果当前在首页，直接允许关闭（不保存）
-          if (showHomeRef.current) {
-            console.log('[App] 当前在首页，直接关闭窗口')
-            return
-          }
-          
-          // 如果没有打开项目，直接允许关闭
-          if (!state.activeTask?.path) {
-            console.log('[App] 没有打开项目，直接关闭窗口')
-            return
-          }
-
           // 如果已经在关闭过程中且保存完成，直接关闭
           if (isClosing && shouldCloseAfterSave) {
-            return // 允许关闭
+            return
           }
 
           // 如果正在保存中，阻止关闭但不做其他操作
@@ -333,19 +321,24 @@ function App() {
             return
           }
 
-          // 阻止窗口关闭，等保存完成后手动关闭
+          // 如果在首页且没有打开项目，直接关闭
+          if (showHomeRef.current || !state.activeTask?.path) {
+            console.log('[App] 无需保存，直接关闭窗口')
+            return
+          }
+
+          // 阻止默认关闭，先保存项目
           event.preventDefault()
           isClosing = true
           console.log('[App] 窗口关闭，正在保存项目...')
-          
+
           try {
-            // 先清除待保存的定时器
+            // 保存项目
             if (autoSaveTimeoutRef.current) {
               clearTimeout(autoSaveTimeoutRef.current)
               autoSaveTimeoutRef.current = null
             }
             
-            // 立即保存
             const success = await state.saveProjectImmediately()
             
             if (success) {
@@ -357,15 +350,6 @@ function App() {
                 message: '项目数据已保存，正在关闭...',
                 duration: 1500,
               })
-              // 短暂延迟后自动关闭窗口
-              setTimeout(() => {
-                mainWindow.close()
-              }, 300)
-            } else if (!state.activeTask?.path) {
-              // 没有打开项目，直接关闭
-              console.log('[App] 没有打开项目，直接关闭窗口')
-              shouldCloseAfterSave = true
-              mainWindow.close()
             } else {
               console.error('[App] 保存项目失败')
               addToast({
@@ -375,23 +359,15 @@ function App() {
                 duration: 5000,
               })
               isClosing = false
-              shouldCloseAfterSave = false
+              return
             }
           } catch (err) {
-            console.error('[App] 退出时保存项目失败:', err)
-            addToast({
-              type: 'error',
-              title: '保存出错',
-              message: err instanceof Error ? err.message : '保存项目时发生错误',
-              duration: 5000,
-            })
-            isClosing = false
-            shouldCloseAfterSave = false
+            console.error('[App] 退出时处理失败:', err)
           }
           
+          shouldCloseAfterSave = true
           isClosing = false
-          // 保存完成后手动关闭窗口
-          await mainWindow.destroy()
+          mainWindow.destroy()
         })
 
         return unlisten
@@ -406,7 +382,7 @@ function App() {
     return () => {
       cleanup.then(fn => fn())
     }
-  }, []) // 空依赖数组，只在组件挂载时设置一次
+  }, [])
 
   // 启动时自动恢复上次的项目数据
   useEffect(() => {

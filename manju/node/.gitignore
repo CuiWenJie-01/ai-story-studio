@@ -1,5 +1,65 @@
+# Dependencies
 node_modules/
+
+# Build outputs
 dist/
-data/
+build/
+
+# Database files
 *.db
+*.db-shm
+*.db-wal
+data/
+
+# Environment variables
 .env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Editor directories and files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# OS generated files
+*.bak
+*.tmp
+
+# Cache
+.cache/
+.parcel-cache/
+.eslintcache
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Generated media files (limit to storage directories)
+storage/
+data/storage/
+
+# Backup files
+*.backup
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Native modules build artifacts
+*.node
+build/Release/
+build/Debug/

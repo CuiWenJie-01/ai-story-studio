@@ -116,7 +116,7 @@ export interface WorkItem {
   generatedAudio: GeneratedAudio | null
   generationState: GenerationState
   resolution: '2k' | '4k'
-  aspectRatio: '9:16' | '16:9'
+  aspectRatio: '9:16' | '16:9' | '4:3' | '3:4'
   duration: number
   currentTaskId?: string
   lipsyncState?: LipSyncItemState
@@ -627,6 +627,7 @@ export interface Seedance2VideoItem {
   aspectRatio?: '16:9' | '9:16' | '4:3' | '1:1' | '3:4' | '21:9'
   resolution?: '480p' | '720p'
   duration?: number
+  taskId?: string
 }
 
 export type Seedance2Provider = 'volcengine' | 'runninghub' | 'runninghub-enterprise'
@@ -655,7 +656,7 @@ export interface CloudAsset {
   uploadedAt: number
 }
 
-export type Seedance2QualityStyle = 'cg-anime' | 'ancient-realistic' | 'modern-urban'
+export type Seedance2QualityStyle = 'cg-anime' | 'ancient-realistic' | 'modern-urban' | 'ancient-realistic-2'
 
 export interface Seedance2Data {
   activeTab: Seedance2TabType
@@ -670,4 +671,5 @@ export interface Seedance2Data {
   selectedResolution: '480p' | '720p'
   selectedQualityStyle: Seedance2QualityStyle
   globalPrompt: string
+  generatedShotsCount: number
 }

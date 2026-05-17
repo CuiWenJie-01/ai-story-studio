@@ -25,5 +25,37 @@ temp/
 .env
 .env.local
 
-# If anyone accidentally runs npm at root
+# Dependencies (if accidentally installed at root)
 node_modules/
+
+# Build outputs (from any sub-project)
+**/dist/
+**/build/
+**/.output/
+
+# Database files
+**/*.db
+**/*.db-shm
+**/*.db-wal
+
+# Generated media files (limit to storage directories to avoid ignoring source assets)
+**/storage/
+**/data/storage/
+
+# Coverage
+**/coverage/
+**/.nyc_output/
+
+# Tauri
+**/src-tauri/target/
+
+# Electron
+**/release/
+**/dist-electron/
+
+# App packages
+*.exe
+*.dmg
+*.deb
+*.rpm
+*.snap

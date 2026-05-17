@@ -67,7 +67,8 @@ export const UserDropdown: React.FC<UserDropdownProps> = ({
     if (!user?.account) return
 
     try {
-      await invoke<AuthResponse>('tauri_logout', { account: user.account })
+      const instanceId = localStorage.getItem('xuyan_instance_id') || ''
+      await invoke<AuthResponse>('tauri_logout', { account: user.account, instanceId })
       setUser(null)
       setIsOpen(false)
       addToast({ type: 'success', title: '已退出登录' })

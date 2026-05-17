@@ -749,16 +749,20 @@ export class RunningHubService {
       })
 
       if (!response.ok) {
-        return { 
-          status: 'FAILED', 
-          errorMessage: `查询失败: ${response.status}` 
-        }
+        throw new Error(`查询失败: ${response.status}`)
       }
 
       const result = await response.json()
       console.log('[RunningHub] 查询任务状态结果:', result)
       
       let status: RunningHubTaskStatus['status'] = result.status || result.taskStatus
+      
+      // 检查状态是否有效
+      const validStatuses: RunningHubTaskStatus['status'][] = ['QUEUED', 'RUNNING', 'SUCCESS', 'FAILED', 'CANCELLED']
+      if (!status || !validStatuses.includes(status)) {
+        console.warn(`[RunningHub] 返回无效状态: ${status}，将触发重试`)
+        throw new Error(`返回无效状态: ${status || 'undefined'}`)
+      }
       
       if (result.status === 'CANCELLED' || 
           result.status === 'CANCELED' || 
@@ -799,10 +803,11 @@ export class RunningHubService {
         errorMessage: errorMsg,
       }
     } catch (error) {
-      return { 
-        status: 'FAILED', 
-        errorMessage: `查询请求失败: ${error instanceof Error ? error.message : '未知错误'}` 
+      // 直接抛出错误，让外层 waitForCompletion 处理重试
+      if (error instanceof Error) {
+        throw error
       }
+      throw new Error(`查询请求失败: ${String(error)}`)
     }
   }
 
@@ -855,6 +860,8 @@ export class RunningHubService {
   ): Promise<RunningHubTaskResult> {
     const startTime = Date.now()
     let isCancelled = false
+    const MAX_RETRIES = 2
+    let consecutiveErrors = 0
     
     const loop = async (): Promise<RunningHubTaskResult> => {
       if (Date.now() - startTime >= maxWaitTime) {
@@ -882,6 +889,9 @@ export class RunningHubService {
       
       try {
         const status = await this.queryTaskStatus(taskId)
+        
+        // 查询成功，重置错误计数
+        consecutiveErrors = 0
         
         if (status.status === 'SUCCESS') {
           return { 
@@ -911,8 +921,35 @@ export class RunningHubService {
           const message = status.status === 'RUNNING' ? '正在处理...' : '等待处理...'
           onProgress(progress, message)
         }
-      } catch {
-        // 忽略查询错误，继续轮询
+      } catch (error) {
+        consecutiveErrors++
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        
+        console.error(`[RunningHub] 查询任务状态失败 (第${consecutiveErrors}次):`, errorMessage)
+        
+        // 检查是否是网络错误
+        const isNetworkError = errorMessage.includes('Failed to fetch') || 
+                               errorMessage.includes('NetworkError') ||
+                               errorMessage.includes('network') ||
+                               errorMessage.includes('fetch')
+        
+        if (consecutiveErrors >= MAX_RETRIES) {
+          console.error(`[RunningHub] 已连续失败 ${consecutiveErrors} 次，停止重试`)
+          return { 
+            success: false, 
+            error: `查询任务状态失败: ${errorMessage}（已重试 ${MAX_RETRIES} 次，后台任务可能仍在运行，请稍后手动刷新查看结果）` 
+          }
+        }
+        
+        // 显示重试提示
+        if (onProgress) {
+          const retryMessage = isNetworkError 
+            ? `网络连接异常，正在重试 (${consecutiveErrors}/${MAX_RETRIES})...`
+            : `查询状态失败，正在重试 (${consecutiveErrors}/${MAX_RETRIES})...`
+          onProgress(0, retryMessage)
+        }
+        
+        console.log(`[RunningHub] 将在 ${pollInterval}ms 后进行第 ${consecutiveErrors + 1} 次重试...`)
       }
       
       return new Promise((resolve) => {

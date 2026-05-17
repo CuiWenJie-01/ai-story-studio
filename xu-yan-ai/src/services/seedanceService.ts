@@ -676,6 +676,8 @@ export class SeedanceService {
     error?: string
   }> {
     const startTime = Date.now()
+    const MAX_RETRIES = 2
+    let consecutiveErrors = 0
 
     while (Date.now() - startTime < maxWaitMs) {
       if (isCancelled?.()) {
@@ -685,6 +687,8 @@ export class SeedanceService {
 
       try {
         const result = await this.queryTaskStatus(taskId)
+        
+        consecutiveErrors = 0
 
         const elapsed = Date.now() - startTime
         const progressPercent = Math.min(90, Math.floor((elapsed / maxWaitMs) * 100))
@@ -700,16 +704,13 @@ export class SeedanceService {
           console.log('[Seedance] 任务成功，完整响应:', JSON.stringify(result, null, 2))
           let videoUrl: string | undefined
 
-          // content 可能是对象或数组
           const content = result.content as unknown
           if (content && typeof content === 'object' && !Array.isArray(content)) {
-            // 对象格式: { video_url: "..." }
             const contentObj = content as Record<string, unknown>
             if (typeof contentObj.video_url === 'string') {
               videoUrl = contentObj.video_url
             }
           } else if (Array.isArray(content)) {
-            // 数组格式: [{ type: "video_url", video_url: { url: "..." } }]
             for (const item of content) {
               if (item.type === 'video_url' && item.video_url?.url) {
                 videoUrl = item.video_url.url
@@ -744,7 +745,38 @@ export class SeedanceService {
 
         await this.sleep(pollIntervalMs)
       } catch (error) {
-        console.error('[Seedance] Poll error:', error)
+        consecutiveErrors++
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        
+        console.error(`[Seedance] 查询任务状态失败 (第${consecutiveErrors}次):`, errorMessage)
+        
+        if (consecutiveErrors >= MAX_RETRIES) {
+          console.error(`[Seedance] 已连续失败 ${consecutiveErrors} 次，停止重试`)
+          videoLog.error('Seedance 查询任务状态连续失败', {
+            provider: 'volcark',
+            taskId,
+            duration: Date.now() - startTime,
+            errorMessage: `连续查询失败 ${consecutiveErrors} 次: ${errorMessage}`,
+          })
+          return { 
+            success: false, 
+            error: `查询任务状态失败: ${errorMessage}（已重试 ${MAX_RETRIES} 次，后台任务可能仍在运行，请稍后手动刷新查看结果）` 
+          }
+        }
+        
+        console.log(`[Seedance] 将在 ${pollIntervalMs}ms 后进行第 ${consecutiveErrors + 1} 次重试...`)
+        if (onProgress) {
+          const elapsed = Date.now() - startTime
+          const progressPercent = Math.min(90, Math.floor((elapsed / maxWaitMs) * 100))
+          const isNetworkError = errorMessage.includes('Failed to fetch') || 
+                                 errorMessage.includes('NetworkError') ||
+                                 errorMessage.includes('network')
+          const retryMessage = isNetworkError 
+            ? `网络连接异常，正在重试 (${consecutiveErrors}/${MAX_RETRIES})...`
+            : `查询状态失败，正在重试 (${consecutiveErrors}/${MAX_RETRIES})...`
+          onProgress(progressPercent, 'running', retryMessage)
+        }
+        
         await this.sleep(pollIntervalMs)
       }
     }

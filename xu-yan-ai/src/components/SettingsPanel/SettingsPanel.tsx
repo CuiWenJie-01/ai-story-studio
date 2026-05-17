@@ -99,7 +99,7 @@ const SettingsPanelContent: React.FC<{
                   value={localSettings.maxConcurrent}
                   onChange={(e) => setLocalSettings({
                     ...localSettings,
-                    maxConcurrent: Math.min(20, Math.max(1, parseInt(e.target.value) || 5))
+                    maxConcurrent: Math.min(20, Math.max(1, parseInt(e.target.value) || 2))
                   })}
                 />
                 <p className={styles.fieldHint}>

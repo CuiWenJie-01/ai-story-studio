@@ -50,7 +50,22 @@ npm run build
 - Rust 1.77.2+
 - Tauri CLI
 
+## 功能特性
+
+- AI 短剧/漫剧剧本生成
+- 角色管理与形象生成
+- 分镜管理与视频生成
+- 语音合成与预览
+- 本地视频处理（基于 FFmpeg）
+- 离线创作支持
+
+## FFmpeg 准备
+
+`src-tauri/binaries/` 目录下的 `ffmpeg.exe` 和压缩包体积较大，已加入 `.gitignore`。首次构建或运行前请自行准备 FFmpeg 二进制文件：
+
+1. 下载 FFmpeg Windows 构建版：https://ffmpeg.org/download.html
+2. 将 `ffmpeg.exe` 放入 `src-tauri/binaries/` 目录
+
 ## 注意事项
 
-- `src-tauri/binaries/` 目录下的 `ffmpeg.exe` 和压缩包体积较大，已加入 `.gitignore`，首次构建或运行前请自行准备 FFmpeg 二进制文件。
 - `src-tauri/target/` 为 Rust 编译输出目录，已加入 `.gitignore`。

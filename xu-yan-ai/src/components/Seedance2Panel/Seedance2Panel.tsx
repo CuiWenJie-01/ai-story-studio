@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
-import { Plus, Minus, X, ImageIcon, Users, Package, Mountain, FileImage, Loader2, Play, Sparkles, Edit2, FolderOpen } from 'lucide-react'
+import { Plus, Minus, X, ImageIcon, Users, Package, Mountain, FileImage, Loader2, Play, Sparkles, Edit2, FolderOpen, Bell } from 'lucide-react'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useAppStore } from '../../store/appStore'
@@ -10,14 +10,16 @@ import { YunwuService } from '../../services/yunwuService'
 import { SeedanceService } from '../../services/seedanceService'
 import { RunningHubService } from '../../services/runningHubService'
 import { EnhanceVideoService } from '../../services/enhanceVideoService'
-import { saveSeedanceResult, saveSeedanceVideo, saveSeedanceImage, getSavedVideos } from '../../utils/seedanceStorage'
+import { saveSeedanceResult, saveSeedanceVideo, saveSeedanceImage, getSavedVideos, saveEnhancedVideo } from '../../utils/seedanceStorage'
 import { getAudioDurationViaTauri, formatDuration } from '../../utils/audioDuration'
 import { videoLog } from '../../services/videoLogService'
-import { stylePrompts, realismEnhancement, ANCIENT_REALISTIC_STORYBOARD_PROMPT } from './stylePrompts'
+import { notificationHistoryService } from '../../services/notificationHistoryService'
+import { stylePrompts, realismEnhancement, STANDARD_STORYBOARD_PROMPT, ANCIENT_REALISTIC_2_STORYBOARD_PROMPT, ancientRealisticStylePrompt, ancientRealistic2StylePrompt } from './stylePrompts'
 import LazyImage from '../LazyImage/LazyImage'
 import { ImageEditor } from '../ImageEditor'
 import CustomSelect from '../CustomSelect/CustomSelect'
 import AssetLibraryPanel from '../AssetLibraryPanel'
+import Seedance2NotificationHistory from './Seedance2NotificationHistory'
 import styles from './Seedance2Panel.module.css'
 
 type MaterialType = 'image' | 'audio' | 'video'
@@ -34,90 +36,6 @@ const MAX_VIDEOS = 3
 const MAX_AUDIOS = 3
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`
-
-const SCRIPT_TO_STORYBOARD_PROMPT = `你是一个seedance2.0的分镜大师
-给你一段剧本，根据以下格式，给我分为多个片段的视频提示词，每个片段总时长控制在5-10秒之间。
-
-【风格锁定 - 最高优先级】
-- 你必须严格使用【画质风格】中指定的风格，严禁输出任何其他风格描述。
-- 【画质风格】的内容为：{STYLE_PLACEHOLDER}
-- 严禁在【画质风格】中添加、修改或替换为其他风格词汇（如"CG动漫""电影级CG动漫""国漫3D""动漫风格"等）。
-- 如果指定的是写实风格，必须保持写实风格贯穿全程，严禁自动切换为动漫或其他风格。
-- 风格一致性检查：输出前必须自检每个片段的【画质风格】是否为指定内容，如果不是，必须修正。
-
-自检：
-1.剧本中的场景和人物是否都出现
-2.人物说话的秒数是否能对应上，不要语速过快或者过慢
-3.每个片段是否可以流畅的衔接上
-4.每个场景如果有关联那么场景提示词生成的图片，是否可以流畅的切换
-5.上下片段的场景是否统一
-6.每个片段的场景中人物的位置关系是否一致
-7.剧本是否有遗漏的地方如果有就补上
-8.格式标签要完整不要有遗漏
-9.人物的台词和内心os一定要明确的区分开，不要以"台词/os:......”这样去表示。(os就是人物的心声、独白，因此视频呈现的画面为:有声音(配合人物的表情反应)，但是人物的嘴巴没有动。
-10.内容红线（重要：红线仅用于判断是否需要艺术化转化呈现，严禁直接删除或跳过剧情）
-- 暴力、血腥、武器、危险动作 → 转化为暗示性镜头或切到反应镜头，保留剧情冲突
-- 低俗、性暗示、亲密接触 → 用含蓄的镜头语言替代（如纱幔遮挡、剪影、局部特写、光影暗示），严禁删除剧情
-- 政治、宗教、国旗、集会 → 淡化背景元素，保留人物互动主线
-- 绝对禁止：因为触碰红线而跳过整段剧情或删除关键情节。所有剧情必须通过艺术手法完整呈现。
-
-输出格式要求（严格按此格式，不要省略任何字段）：
-
-#### 片段1：
-【画质风格】{STYLE_PLACEHOLDER}
-【场景氛围】XX场景+地面/环境描述，XX氛围，情绪基调XX，光影为XX，明暗对比强烈，突出人物对立
-【分秒动作剧本】
-0-X秒（分镜1）
-景别：（如全景/中景/近景/特写）
-画面描述：（极其详细的动作描述，必须包含以下细节，不允许省略任何剧情元素）
-- 人物动作：详细描述每个角色的动作起承转合，包括发力点、身体惯性、动作节奏
-- 人物表情：微表情细节，眼神变化（瞳孔收缩、眼眶微红、目光闪躲或直视）、面部肌肉抽动、嘴角细微变化、眉毛动作
-- 皮肤质感：皮肤状态（细腻、苍白、泛红、汗珠、泪痕、毛孔可见度）、发丝飘动和光泽、唇色变化
-- 身体动态：呼吸起伏、胸口起伏、肩膀颤抖、手指蜷缩或伸展、指尖微颤
-- 衣物细节：材质（丝绸/棉麻/纱质）、褶皱形成、布料与皮肤贴合度、衣摆垂坠或飘动
-- 环境光影：光线具体来源（烛光/月光/窗棂光）、光影在人物脸上的移动、空气中微尘、温度视觉表现
-- 运镜方式：固定镜头/推/拉/摇/移/跟拍/手持晃动等，以及镜头运动的具体路径和速度
-- 音效：环境音、动作音、人物声音等
-
-X-Y秒（分镜2）
-景别：
-画面描述：（同上，包含所有细节维度）
-...
-（按1-3秒拆分每个分镜，总时长5-10秒，注意对话时长符合语速）
-
-【镜头语言】景别变化逻辑，镜头运镜方式，视角切换目的，强化矛盾方式
-【物理强化】动作物理反馈，布料/金属/环境动态细节
-【质量标签】高清8K，cinematic，电影级质感，细节拉满，光影细腻，动态流畅，无水印，无字幕，无时间码
-【风格基准】{STYLE_PLACEHOLDER}，XX主色调，电影级光影质感，继承角色视觉基准
-【声效参考】
-环境音效：XXX
-动作音效：XXX
-【台词】
-(XX-XX秒)角色：台词内容
-(XX-XX秒) 角色（内心OS，混响）：OS内容
-
-【重要：禁止字幕】
-【重要：保持无字幕】
-【重要：避免生成任何文字或字幕】
-【重要：无bgm】
-【重要：全景的人物位置要正确，不要出现重复的人物画面比如一个画面中出现两个相同的人物是不可以的，不要出现人物位置不对的情况】
-【重要：视频全程不要在同一画面中复制相同人物，不要多人同脸】
-【重要：台词不要读错字】
-
-规则:
-1.对话的时候可以切换画面到话语中的场景，例如xxx说：他屠戮了三百龙族  这个画面可以切换到他屠戮三百龙族的画面，说完再切回来
-2.如果5-10秒的视频不够让一个人说完话那么画面一定要和下一片段的视频的开头能衔接上
-3.下一个片段开头和上一段的结束镜头不要在一个镜头，比如上一段的结尾是xxx的特写或者上半身景别，下一个片段的开始就不要放这个镜头，要切换到下一个镜头
-4.战斗画面不要简写成"激烈交锋""两人打架"等简写，战斗画面要写的详细
-5.每个分镜的画面描述必须极度详细，不能省略任何剧情细节，要包含人物动作、表情、皮肤、身体、衣物、环境、运镜、音效所有维度
-6.写实风格要求：人物皮肤纹理真实（自然毛孔、无过度磨皮、无假白）、光影过渡自然、衣料质感真实无塑料感、场景细节丰富（木质纹理、纱幔肌理、烛火跳动等）、动态流畅贴合真实人体姿态
-7.剧情完整性铁律（最高优先级）：
-   - 严禁因为内容红线而删除、跳过或省略任何剧情段落
-   - 剧本中的每一句台词、每一个动作、每一个场景转换都必须在分镜中体现
-   - 如果某段剧情涉及红线内容，必须使用艺术化手法转化呈现（如借位、剪影、局部特写、环境暗示、纱幔遮挡等），而不是删除
-   - 自检时必须逐一核对：剧本中的每个情节是否都在分镜中找到了对应，遗漏即为失败
-
-剧本如下:`
 
 interface MentionPopupState {
   show: boolean
@@ -160,15 +78,20 @@ const Seedance2Panel: React.FC = () => {
   const [videoNavigatorInput, setVideoNavigatorInput] = useState('')
   const [showGlobalPromptModal, setShowGlobalPromptModal] = useState(false)
   const [globalPromptInput, setGlobalPromptInput] = useState('')
+  const [showNotificationHistory, setShowNotificationHistory] = useState(false)
+  const [expandedPromptId, setExpandedPromptId] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const cancelFlagsRef = useRef<Map<string, boolean>>(new Map())
   const taskIdsRef = useRef<Map<string, string>>(new Map())
+  const generatingRef = useRef<Set<string>>(new Set())
   const textareaRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map())
   const mentionPopupRef = useRef<HTMLDivElement>(null)
   const videoNavigatorInputRef = useRef<HTMLInputElement>(null)
   const globalPromptTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const lastRestoredProjectPathRef = useRef<string | null>(null)
+  const justTypedAtRef = useRef(false)
 
-  const { settings, activeTask, seedance2Data, updateSeedance2Data, apiConfigs, setDisableShotNavigator, amkApiKey, addToast, lastActiveMode } = useAppStore()
+  const { settings, activeTask, seedance2Data, updateSeedance2Data, apiConfigs, setDisableShotNavigator, amkApiKey, addToast, lastActiveMode, saveProjectImmediately } = useAppStore()
 
   const activeTab = seedance2Data.activeTab
   const novelText = seedance2Data.novelText
@@ -176,6 +99,73 @@ const Seedance2Panel: React.FC = () => {
   const videoPrompts = seedance2Data.videoPrompts
   const videoItems = seedance2Data.videoItems
   const globalPrompt = seedance2Data.globalPrompt
+  const generatedShotsCount = seedance2Data.generatedShotsCount || 0
+
+  // 初始化通知历史服务
+  useEffect(() => {
+    if (activeTask?.path) {
+      notificationHistoryService.init(activeTask.path)
+    }
+  }, [activeTask?.path])
+
+  // 项目切换时自动恢复视频（静默模式，不显示提示）
+  useEffect(() => {
+    const restoreVideosOnProjectChange = async () => {
+      const currentPath = activeTask?.path
+      
+      // 如果没有项目路径，或者已经恢复过这个项目，跳过
+      if (!currentPath || lastRestoredProjectPathRef.current === currentPath) {
+        return
+      }
+      
+      // 标记当前项目已恢复
+      lastRestoredProjectPathRef.current = currentPath
+      
+      // 获取已保存的视频文件
+      const savedVideos = await getSavedVideos(currentPath)
+      if (savedVideos.length === 0) {
+        return
+      }
+      
+      // 获取当前的视频项
+      const { seedance2Data, saveProjectImmediately } = useAppStore.getState()
+      const currentVideoItems = seedance2Data.videoItems
+      
+      if (currentVideoItems.length === 0) {
+        return
+      }
+      
+      // 检查并恢复需要恢复的视频
+      let restoredCount = 0
+      const updatedItems = [...currentVideoItems]
+      
+      for (let i = 0; i < updatedItems.length; i++) {
+        const video = updatedItems[i]
+        
+        // 如果没有预览视频，尝试从本地恢复
+        if (!video.previewUrl) {
+          const savedVideo = savedVideos.find(v => v.videoItemId === video.id)
+          if (savedVideo) {
+            updatedItems[i] = {
+              ...video,
+              previewUrl: convertFileSrc(savedVideo.path)
+            }
+            restoredCount++
+            console.log(`[Seedance2] 项目切换时自动恢复视频 ${i + 1}`)
+          }
+        }
+      }
+      
+      if (restoredCount > 0) {
+        updateSeedance2Data({ videoItems: updatedItems })
+        // 立即保存项目，确保持久化
+        await saveProjectImmediately()
+        console.log(`[Seedance2] 项目切换时自动恢复了 ${restoredCount} 个视频并已保存`)
+      }
+    }
+    
+    restoreVideosOnProjectChange()
+  }, [activeTask?.path, updateSeedance2Data])
 
   // 根据当前是否在 Seedance2.0 界面来启用/禁用 ShotNavigator
   useEffect(() => {
@@ -332,10 +322,6 @@ const Seedance2Panel: React.FC = () => {
     updateSeedance2Data({ selectedModel: model })
   }, [updateSeedance2Data])
 
-  const setCustomModelId = useCallback((id: string) => {
-    updateSeedance2Data({ customModelId: id })
-  }, [updateSeedance2Data])
-
   const setSelectedAspectRatio = useCallback((ratio: '16:9' | '9:16' | '4:3' | '1:1' | '3:4' | '21:9') => {
     updateSeedance2Data({ selectedAspectRatio: ratio })
   }, [updateSeedance2Data])
@@ -383,7 +369,7 @@ const Seedance2Panel: React.FC = () => {
     }
 
     try {
-      const result = await saveSeedanceImage(basePath, file, currentImageCount + 1)
+      const result = await saveSeedanceImage(basePath, file, videoId, currentImageCount + 1)
       if (result) {
         const material: Seedance2MaterialItem = {
           id: generateId(),
@@ -528,12 +514,12 @@ const Seedance2Panel: React.FC = () => {
       const styleConfig = stylePrompts[seedance2Data.selectedQualityStyle] || stylePrompts['cg-anime']
 
       let basePrompt: string
-      if (seedance2Data.selectedQualityStyle === 'ancient-realistic') {
-        basePrompt = ANCIENT_REALISTIC_STORYBOARD_PROMPT
+      if (seedance2Data.selectedQualityStyle === 'ancient-realistic-2') {
+        basePrompt = ANCIENT_REALISTIC_2_STORYBOARD_PROMPT
       } else {
         const styleText = styleConfig.prompt
         const enhancement = seedance2Data.selectedQualityStyle === 'cg-anime' ? '' : realismEnhancement
-        basePrompt = SCRIPT_TO_STORYBOARD_PROMPT.replace(/\{STYLE_PLACEHOLDER\}/g, styleText) + enhancement
+        basePrompt = STANDARD_STORYBOARD_PROMPT.replace(/\{STYLE_PLACEHOLDER\}/g, styleText) + enhancement
       }
 
       const getModelName = (api: string) => {
@@ -654,7 +640,11 @@ const Seedance2Panel: React.FC = () => {
       
       if (allSegments.length > 0) {
         const isAncientRealistic = seedance2Data.selectedQualityStyle === 'ancient-realistic'
-        const correctAncientStylePrefix = `电影光线,半透明纹理,哑光高级质感,动态柔光投影,所有人物都有发丝光，朦胧发光层,胶片摄影,布料质感通透细腻。整个视频无任何背景音乐和任何字幕`
+        const isAncientRealistic2 = seedance2Data.selectedQualityStyle === 'ancient-realistic-2'
+        
+        const correctAncientStylePrefix = ancientRealisticStylePrompt.split('\n')[0]
+        const correctAncientStylePrefix2 = ancientRealistic2StylePrompt
+        
         // 错误风格关键词列表（用于检测AI是否输出了错误的风格）
         const wrongStylePatterns = [
           /电影级CG动漫/,
@@ -671,11 +661,12 @@ const Seedance2Panel: React.FC = () => {
           let prompt = segment.trim()
 
           // 古风写实风格后处理：校验并修正风格描述
-          if (isAncientRealistic && prompt.length > 10) {
+          if ((isAncientRealistic || isAncientRealistic2) && prompt.length > 10) {
+            const stylePrefix = isAncientRealistic2 ? correctAncientStylePrefix2 : correctAncientStylePrefix
             // 检查是否包含错误风格关键词
             const hasWrongStyle = wrongStylePatterns.some(pattern => pattern.test(prompt))
             // 检查是否以正确的古风写实风格开头
-            const hasCorrectPrefix = prompt.startsWith(correctAncientStylePrefix)
+            const hasCorrectPrefix = prompt.startsWith(stylePrefix)
 
             if (hasWrongStyle || !hasCorrectPrefix) {
               // 尝试找到并替换错误的风格描述行
@@ -687,7 +678,7 @@ const Seedance2Panel: React.FC = () => {
                 // 如果该行包含错误风格关键词，或者是片段标题后的第一行非空行
                 if (wrongStylePatterns.some(pattern => pattern.test(line)) ||
                     (i === 1 && line.length > 0 && !line.startsWith('（人物') && !line.startsWith('（场景') && !line.startsWith('分镜时长'))) {
-                  lines[i] = correctAncientStylePrefix
+                  lines[i] = stylePrefix
                   styleFixed = true
                   break
                 }
@@ -703,7 +694,7 @@ const Seedance2Panel: React.FC = () => {
                     break
                   }
                 }
-                lines.splice(insertIndex, 0, correctAncientStylePrefix)
+                lines.splice(insertIndex, 0, stylePrefix)
                 styleFixed = true
               }
 
@@ -1080,14 +1071,37 @@ const Seedance2Panel: React.FC = () => {
       materials: [],
       previewUrl: undefined
     }))
-    updateSeedance2Data({ videoItems: [] })
-    setTimeout(() => {
+    
+    // 如果已有视频，询问用户选择覆盖还是顺序添加
+    if (videoItems.length > 0) {
+      const result = window.confirm(
+        `当前已有 ${videoItems.length} 个视频镜头。\n\n点击"确定"覆盖原有视频镜头，点击"取消"则在现有视频后顺序添加。`
+      )
+      
+      if (result) {
+        // 覆盖模式：清空现有视频，添加新视频
+        updateSeedance2Data({ videoItems: [] })
+        setTimeout(() => {
+          updateSeedance2Data({
+            videoItems: newVideos,
+            activeTab: 'videoGeneration'
+          })
+        }, 10)
+      } else {
+        // 顺序添加模式：在现有视频后面添加新视频
+        updateSeedance2Data({
+          videoItems: [...videoItems, ...newVideos],
+          activeTab: 'videoGeneration'
+        })
+      }
+    } else {
+      // 没有现有视频，直接添加
       updateSeedance2Data({
         videoItems: newVideos,
         activeTab: 'videoGeneration'
       })
-    }, 10)
-  }, [videoPrompts, updateSeedance2Data, generatingVideoIds.size])
+    }
+  }, [videoPrompts, updateSeedance2Data, generatingVideoIds.size, videoItems])
 
   const handleAddVideo = useCallback((sourceVideoId?: string) => {
     // 获取源视频（传入的ID或当前选中的视频），复制其素材和提示词
@@ -1099,8 +1113,13 @@ const Seedance2Panel: React.FC = () => {
       materials: currentVideo?.materials ? [...currentVideo.materials] : [],
       previewUrl: undefined
     }
+    // 插入到源视频项的下方
+    const sourceIndex = videoItems.findIndex(v => v.id === sourceId)
+    const insertIndex = sourceIndex >= 0 ? sourceIndex + 1 : videoItems.length
+    const newVideoItems = [...videoItems]
+    newVideoItems.splice(insertIndex, 0, newVideo)
     updateSeedance2Data({
-      videoItems: [...videoItems, newVideo]
+      videoItems: newVideoItems
     })
   }, [videoItems, selectedVideoId, updateSeedance2Data])
 
@@ -1110,6 +1129,55 @@ const Seedance2Panel: React.FC = () => {
       videoItems: videoItems.filter(v => v.id !== videoId)
     })
   }, [videoItems, updateSeedance2Data])
+
+  // 恢复单个视频（当视频加载失败时自动调用）
+  // silent 为 true 时不显示 toast 提示
+  const handleRestoreSingleVideo = useCallback(async (videoId: string, videoIndex: number, silent: boolean = true) => {
+    if (!activeTask?.path) {
+      console.log('[Seedance2] 无法恢复视频：没有活动项目路径')
+      return
+    }
+
+    try {
+      console.log(`[Seedance2] 尝试恢复视频 ${videoIndex} (ID: ${videoId})`)
+      
+      const savedVideos = await getSavedVideos(activeTask.path)
+      const savedVideo = savedVideos.find(v => v.videoItemId === videoId)
+      
+      if (savedVideo) {
+        const { seedance2Data, saveProjectImmediately } = useAppStore.getState()
+        const updatedVideoItems = seedance2Data.videoItems.map(v =>
+          v.id === videoId ? { ...v, previewUrl: convertFileSrc(savedVideo.path) } : v
+        )
+        
+        updateSeedance2Data({ videoItems: updatedVideoItems })
+        
+        // 立即保存项目，确保持久化
+        await saveProjectImmediately()
+        
+        if (!silent) {
+          addToast({
+            type: 'success',
+            title: '视频已恢复',
+            message: `视频 ${videoIndex} 已从本地文件恢复`
+          })
+        }
+        
+        console.log(`[Seedance2] 视频 ${videoIndex} 恢复成功并已保存:`, savedVideo.path)
+      } else {
+        console.log(`[Seedance2] 未找到视频 ${videoIndex} 的本地文件`)
+      }
+    } catch (error) {
+      console.error(`[Seedance2] 恢复视频 ${videoIndex} 失败:`, error)
+      if (!silent) {
+        addToast({
+          type: 'error',
+          title: '恢复失败',
+          message: error instanceof Error ? error.message : '恢复视频失败'
+        })
+      }
+    }
+  }, [activeTask?.path, addToast, updateSeedance2Data])
 
   // 从本地恢复已保存的视频
   const handleRestoreSavedVideos = useCallback(async () => {
@@ -1126,7 +1194,7 @@ const Seedance2Panel: React.FC = () => {
       addToast({
         type: 'info',
         title: '正在恢复',
-        message: '正在查找已保存的视频...'
+        message: '正在检测视频状态并查找已保存的视频...'
       })
 
       // 获取已保存的视频文件
@@ -1142,46 +1210,66 @@ const Seedance2Panel: React.FC = () => {
       }
 
       // 获取当前的视频项
-      const { seedance2Data } = useAppStore.getState()
+      const { seedance2Data, saveProjectImmediately } = useAppStore.getState()
       const currentVideoItems = [...seedance2Data.videoItems]
       
       // 记录恢复了多少个视频
       let restoredCount = 0
+      let replacedCount = 0
       
-      // 处理所有没有预览视频的视频项（不管有没有提示词）
+      // 处理所有视频项
       for (let i = 0; i < currentVideoItems.length; i++) {
         const video = currentVideoItems[i]
-        
+
         // 条件：没有预览视频（previewUrl 为空）
         if (!video.previewUrl) {
-          // 查找对应索引的已保存视频（视频索引从1开始，数组索引从0开始）
-          const savedVideo = savedVideos.find(v => v.index === i + 1)
-          
+          // 按 videoItemId 查找已保存的视频（支持新格式和旧格式兼容）
+          const savedVideo = savedVideos.find(v => v.videoItemId === video.id)
+
           if (savedVideo) {
-            // 只添加视频，不改变提示词
+            // 恢复视频，不改变提示词
             currentVideoItems[i] = {
               ...video,
               previewUrl: convertFileSrc(savedVideo.path)
             }
-            restoredCount++
+            
+            if (!video.previewUrl) {
+              restoredCount++
+            } else {
+              replacedCount++
+            }
           }
         }
-        // 已有预览视频的不管
       }
 
       updateSeedance2Data({ videoItems: currentVideoItems })
       
-      if (restoredCount > 0) {
+      // 立即保存项目，确保持久化
+      if (restoredCount > 0 || replacedCount > 0) {
+        await saveProjectImmediately()
+      }
+      
+      // 构建提示消息
+      let message = ''
+      if (restoredCount > 0 && replacedCount > 0) {
+        message = `已恢复 ${restoredCount} 个新视频，替换 ${replacedCount} 个失效视频`
+      } else if (restoredCount > 0) {
+        message = `已为 ${restoredCount} 个视频镜头添加视频`
+      } else if (replacedCount > 0) {
+        message = `已替换 ${replacedCount} 个失效视频`
+      }
+      
+      if (restoredCount > 0 || replacedCount > 0) {
         addToast({
           type: 'success',
           title: '恢复成功',
-          message: `已为 ${restoredCount} 个视频镜头添加视频`
+          message
         })
       } else {
         addToast({
           type: 'info',
           title: '没有可恢复的视频',
-          message: '没有匹配到无视频的视频项'
+          message: '所有视频均正常，无需恢复'
         })
       }
     } catch (error) {
@@ -1280,6 +1368,10 @@ const Seedance2Panel: React.FC = () => {
   }, [])
 
   const handlePromptKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === '@' || e.key === 'Process' || e.keyCode === 50 && e.shiftKey) {
+      justTypedAtRef.current = true
+    }
+
     if (mentionPopup.show) {
       if (e.key === 'Escape') {
         e.preventDefault()
@@ -1348,37 +1440,27 @@ const Seedance2Panel: React.FC = () => {
         if (mentionPopup.show) {
           setMentionPopup(prev => ({ ...prev, show: false }))
         }
+        justTypedAtRef.current = false
+        return
+      }
+      
+      if (!justTypedAtRef.current) {
+        justTypedAtRef.current = false
         return
       }
       
       const currentVideo = videoItems.find(v => v.id === videoId)
       if (currentVideo && currentVideo.materials.length > 0) {
-        const textarea = e.target as HTMLTextAreaElement
         const textareaRect = textarea.getBoundingClientRect()
-
-        let foundAtPos = -1
-        for (let i = cursorPos - 1; i >= 0; i--) {
-          const char = value[i]
-          if (char === '@') {
-            const textBetween = value.substring(i + 1, cursorPos)
-            if (!textBetween.includes(' ') && !textBetween.includes('\n')) {
-              foundAtPos = i
-            }
-            break
-          }
-          if (char === ' ' || char === '\n') {
-            break
-          }
-        }
-
-        if (foundAtPos === -1) return
-
-        const lines = value.substring(0, cursorPos).split('\n')
-        const currentLineNumber = lines.length
-        const currentLineText = lines[currentLineNumber - 1]
-
         const style = getComputedStyle(textarea)
         const lineHeight = parseInt(style.lineHeight) || 22
+        const paddingLeft = parseInt(style.paddingLeft) || 12
+        const paddingTop = parseInt(style.paddingTop) || 12
+        const scrollTop = textarea.scrollTop
+
+        const textBeforeAt = value.substring(0, foundAtPos + 1)
+        const linesBeforeAt = textBeforeAt.split('\n')
+        const textAtLine = linesBeforeAt[linesBeforeAt.length - 1]
 
         const span = document.createElement('span')
         span.style.cssText = `
@@ -1387,43 +1469,38 @@ const Seedance2Panel: React.FC = () => {
           white-space: pre;
           font-family: ${style.fontFamily};
           font-size: ${style.fontSize};
+          line-height: ${style.lineHeight};
         `
-        span.textContent = currentLineText
+        span.textContent = textAtLine
         document.body.appendChild(span)
-        const lineWidth = span.offsetWidth
+        const atSymbolWidth = span.offsetWidth
         document.body.removeChild(span)
 
-        const paddingLeft = parseInt(style.paddingLeft) || 12
-        const scrollTop = textarea.scrollTop
+        const popupY = textareaRect.top + paddingTop + (linesBeforeAt.length - 1) * lineHeight - scrollTop + lineHeight / 2 + 8
+        const popupX = textareaRect.left + paddingLeft + atSymbolWidth
 
-        const cursorYInText = (currentLineNumber - 1) * lineHeight + lineHeight
-        const cursorYOnScreen = textareaRect.top + (cursorYInText - scrollTop)
+        const popupWidth = 220
+        const popupHeight = 240
 
-        const cursorXOnScreen = textareaRect.left + paddingLeft + lineWidth
-
-        const popupWidth = 200
-        const popupHeight = 220
-
-        let popupX = cursorXOnScreen - popupWidth / 2
-        popupX = Math.max(10, Math.min(popupX, window.innerWidth - popupWidth - 10))
-
-        let popupY = cursorYOnScreen - popupHeight + 250
-        if (popupY < 10) {
-          popupY = cursorYOnScreen + 250
-        }
+        const finalPopupX = Math.max(10, Math.min(popupX, window.innerWidth - popupWidth - 10))
+        const finalPopupY = popupY + popupHeight > window.innerHeight - 10 
+          ? popupY - popupHeight - lineHeight / 2 
+          : popupY
 
         setMentionPopup({
           show: true,
           videoId,
-          position: { x: popupX, y: popupY },
+          position: { x: finalPopupX, y: finalPopupY },
           filterText: textAfterAt.toLowerCase(),
           cursorPosition: cursorPos,
           selectedIndex: 0,
         })
+        justTypedAtRef.current = false
         return
       }
     }
 
+    justTypedAtRef.current = false
     if (mentionPopup.show) {
       setMentionPopup(prev => ({ ...prev, show: false }))
     }
@@ -1510,14 +1587,35 @@ const Seedance2Panel: React.FC = () => {
       return
     }
 
+    // 检查是否已有预览视频（防止重复生成浪费算力）
+    if (targetVideoItem.previewUrl) {
+      const confirmResult = window.confirm(
+        '该视频已生成过，重新生成将消耗额外算力资源。\n\n确认要重新生成吗？'
+      )
+      if (!confirmResult) {
+        return
+      }
+    }
+
+    // 限制同时生成的视频数量（避免过多并发消耗算力）
+    if (generatingVideoIds.size >= 2) {
+      useAppStore.getState().addToast({
+        type: 'warning',
+        title: '生成限制',
+        message: `当前已有 ${generatingVideoIds.size} 个视频在生成中，请等待完成后再继续`
+      })
+      return
+    }
+
     const duration = targetVideoItem.duration ?? 15
     console.log(`[Seedance2] 生成视频时长: ${duration}, videoId: ${videoItem.id}, latestDuration: ${latestVideoItem?.duration}`)
 
     // 记录生成入口日志（用于诊断时长问题）
+    const logShotNumber = String(currentSeedance2Data.videoItems.findIndex(v => v.id === videoItem.id) + 1)
     videoLog.info('Seedance2 开始生成视频', {
       provider: selectedProvider,
       model: selectedModel,
-      shotNumber: String(videoItems.findIndex(v => v.id === videoItem.id) + 1),
+      shotNumber: logShotNumber,
       requestParams: {
         duration: duration,
         durationType: typeof duration,
@@ -1607,12 +1705,13 @@ const Seedance2Panel: React.FC = () => {
       }
     }
 
-    const { seedance2Data } = useAppStore.getState()
-    const currentVideoItems = seedance2Data.videoItems
+    // 先标记正在生成（ref 同步更新，避免竞态）
+    generatingRef.current.add(videoItem.id)
 
+    // 清空当前视频的预览URL
     updateSeedance2Data({
-      videoItems: currentVideoItems.map(v =>
-        v.id === videoItem.id ? { ...v, previewUrl: undefined } : v
+      videoItems: videoItems.map(v =>
+        v.id === videoItem.id ? { ...v, previewUrl: undefined, taskId: undefined } : v
       )
     })
 
@@ -1625,7 +1724,9 @@ const Seedance2Panel: React.FC = () => {
 
     let taskId: string | undefined
     let videoUrl: string | undefined
-    const taskIndex = videoItems.findIndex(v => v.id === videoItem.id) + 1
+    // 从 store 获取最新的 videoItems，避免闭包问题
+    const latestVideoItemsForIndex = useAppStore.getState().seedance2Data.videoItems
+    const taskIndex = latestVideoItemsForIndex.findIndex(v => v.id === videoItem.id) + 1
 
     try {
       const materialsWithUrls: Seedance2MaterialItem[] = targetVideoItem.materials
@@ -1715,6 +1816,13 @@ const Seedance2Panel: React.FC = () => {
 
         // 存储 taskId 以便取消时使用
         taskIdsRef.current.set(videoItem.id, taskId)
+        
+        // 保存 taskId 到 videoItem 并持久化（使用 getState 取最新值，避免闭包旧值）
+        const latestItems = useAppStore.getState().seedance2Data.videoItems
+        updateSeedance2Data({
+          videoItems: latestItems.map(v => v.id === videoItem.id ? { ...v, taskId } : v)
+        })
+        saveProjectImmediately()
 
         setVideoProgress(prev => ({
           ...prev,
@@ -2096,6 +2204,14 @@ const Seedance2Panel: React.FC = () => {
           // 存储 taskId 以便取消时使用
           taskIdsRef.current.set(videoItem.id, taskId)
           console.log('[RunningHub] 任务提交成功, taskId:', taskId)
+          
+          // 保存 taskId 到 videoItem 并持久化（使用 getState 取最新值，避免闭包旧值）
+          const latestItems = useAppStore.getState().seedance2Data.videoItems
+          updateSeedance2Data({
+            videoItems: latestItems.map(v => v.id === videoItem.id ? { ...v, taskId } : v)
+          })
+          saveProjectImmediately()
+          
           setVideoProgress(prev => ({
             ...prev,
             [videoItem.id]: { progress: 10, status: 'queued', message: '任务排队中...' }
@@ -2447,6 +2563,14 @@ const Seedance2Panel: React.FC = () => {
           // 存储 taskId 以便取消时使用
           taskIdsRef.current.set(videoItem.id, taskId)
           console.log('[Enterprise] 任务提交成功, taskId:', taskId)
+          
+          // 保存 taskId 到 videoItem 并持久化（使用 getState 取最新值，避免闭包旧值）
+          const latestItems = useAppStore.getState().seedance2Data.videoItems
+          updateSeedance2Data({
+            videoItems: latestItems.map(v => v.id === videoItem.id ? { ...v, taskId } : v)
+          })
+          saveProjectImmediately()
+          
           setVideoProgress(prev => ({
             ...prev,
             [videoItem.id]: { progress: 10, status: 'queued', message: '任务排队中...' }
@@ -2557,6 +2681,14 @@ const Seedance2Panel: React.FC = () => {
             title: '视频生成成功',
             message: `视频${latestVideoItems.findIndex(v => v.id === videoItem.id) + 1}已完成`
           })
+
+          // 记录到通知历史
+          await notificationHistoryService.addRecord({
+            type: 'success',
+            title: '视频生成成功',
+            message: `视频${latestVideoItems.findIndex(v => v.id === videoItem.id) + 1}已完成`,
+            shotNumber: String(latestVideoItems.findIndex(v => v.id === videoItem.id) + 1)
+          })
         }
 
         if (activeTask?.path && taskId) {
@@ -2568,9 +2700,7 @@ const Seedance2Panel: React.FC = () => {
           } else {
             finalModel = 'runninghub'
           }
-          const taskIndex = latestVideoItems.findIndex(v => v.id === videoItem.id) + 1
-
-          const savedPath = await saveSeedanceVideo(activeTask.path, videoUrl, taskId, taskIndex)
+          const savedPath = await saveSeedanceVideo(activeTask.path, videoUrl, taskId, videoItem.id)
           console.log(`[Seedance2] 视频${taskIndex}已保存到: ${savedPath}`)
 
           await saveSeedanceResult(activeTask.path, {
@@ -2587,6 +2717,16 @@ const Seedance2Panel: React.FC = () => {
             completedAt: Date.now(),
             status: 'success',
           })
+          
+          // 已生成镜头计数+1
+          const currentCount = useAppStore.getState().seedance2Data.generatedShotsCount || 0
+          const newCount = currentCount + 1
+          updateSeedance2Data({ generatedShotsCount: newCount })
+          console.log(`[Seedance2] 已生成镜头计数: ${currentCount} -> ${newCount}`)
+          
+          // 立即保存项目数据，持久化生成状态
+          await saveProjectImmediately()
+          console.log('[Seedance2] 项目数据已持久化')
         }
       }
     } catch (err) {
@@ -2629,6 +2769,15 @@ const Seedance2Panel: React.FC = () => {
         })
       } else {
         console.error(`[Seedance2] 视频${taskIndex}生成失败:`, errorMessage)
+
+        // 检测是否是网络相关错误
+        const isNetworkError = errorMessage.includes('Failed to fetch') ||
+          errorMessage.includes('网络') ||
+          errorMessage.includes('timeout') ||
+          errorMessage.includes('超时') ||
+          errorMessage.includes('ECONNREFUSED') ||
+          errorMessage.includes('ENOTFOUND') ||
+          errorMessage.includes('ETIMEDOUT')
 
         // 记录失败到日志
         videoLog.error('Seedance2 视频生成失败', {
@@ -2675,21 +2824,57 @@ const Seedance2Panel: React.FC = () => {
             error: errorMessage,
           })
         }
-        
+
         // 更新进度状态显示错误
         setVideoProgress(prev => ({
           ...prev,
           [videoItem.id]: { progress: 0, status: 'failed', message: `生成失败: ${errorMessage}` }
         }))
-        
+
         // 显示错误提示（包含日志路径提示）
         const logPath = await videoLog.getLogPath()
-        useAppStore.getState().addToast({
-          type: 'error',
-          title: `视频${taskIndex}生成失败`,
-          message: `${errorMessage}\n日志位置: ${logPath}`,
-          duration: 8000,
-        })
+
+        if (isNetworkError) {
+          // 网络抖动/代理问题，给出友好提示并记录到通知历史
+          const networkErrorTitle = `视频${taskIndex}生成失败 - 网络异常`
+          const networkErrorMsg = `检测到网络连接不稳定，可能是服务商网络抖动或代理/VPN干扰。\n\n建议：\n1. 等待 1-2 分钟后重新尝试生成\n2. 如使用了代理/VPN，请尝试切换节点或关闭后再试\n3. 检查本地网络连接是否正常\n\n技术信息：${errorMessage}`
+
+          useAppStore.getState().addToast({
+            type: 'warning',
+            title: networkErrorTitle,
+            message: networkErrorMsg,
+            duration: 10000,
+          })
+
+          // 记录到通知历史
+          if (activeTask?.path) {
+            await notificationHistoryService.init(activeTask.path)
+            await notificationHistoryService.addRecord({
+              type: 'warning',
+              title: networkErrorTitle,
+              message: networkErrorMsg,
+              shotNumber: String(taskIndex),
+            })
+          }
+        } else {
+          useAppStore.getState().addToast({
+            type: 'error',
+            title: `视频${taskIndex}生成失败`,
+            message: `${errorMessage}\n日志位置: ${logPath}`,
+            duration: 8000,
+          })
+
+          // 记录到通知历史
+          if (activeTask?.path) {
+            await notificationHistoryService.init(activeTask.path)
+            await notificationHistoryService.addRecord({
+              type: 'error',
+              title: `视频${taskIndex}生成失败`,
+              message: errorMessage,
+              shotNumber: String(taskIndex)
+            })
+          }
+        }
       }
     } finally {
       setGeneratingVideoIds(prev => {
@@ -2697,10 +2882,11 @@ const Seedance2Panel: React.FC = () => {
         next.delete(videoItem.id)
         return next
       })
+      generatingRef.current.delete(videoItem.id)
       cancelFlagsRef.current.delete(videoItem.id)
       taskIdsRef.current.delete(videoItem.id)
     }
-  }, [apiConfigs, videoItems, updateSeedance2Data, getAssetUrl, selectedAspectRatio, selectedResolution, selectedModel, customModelId, activeTask, selectedProvider, convertPromptToRunningHubFormat, globalPrompt])
+  }, [apiConfigs, videoItems, updateSeedance2Data, getAssetUrl, selectedAspectRatio, selectedResolution, selectedModel, customModelId, activeTask, selectedProvider, convertPromptToRunningHubFormat, globalPrompt, saveProjectImmediately])
 
   const handleCancelGenerate = useCallback(async (videoId: string) => {
     // 设置取消标志
@@ -2846,10 +3032,9 @@ const Seedance2Panel: React.FC = () => {
           
           // 获取已保存的视频列表
           const savedVideos = await getSavedVideos(activeTask.path)
-          const taskIndex = videoItems.findIndex(v => v.id === videoItem.id) + 1
-          
-          // 查找对应的本地视频文件
-          const localVideo = savedVideos.find(v => v.index === taskIndex)
+
+          // 按 videoItemId 查找对应的本地视频文件
+          const localVideo = savedVideos.find(v => v.videoItemId === videoItem.id)
           
           if (!localVideo) {
             throw new Error('视频链接已失效，且未找到本地保存的视频文件。请重新生成视频后再试')
@@ -2899,8 +3084,7 @@ const Seedance2Panel: React.FC = () => {
       if (result.success && result.videoUrl) {
         // 使用函数式更新，从 store 获取最新的 videoItems
         const currentVideoItems = useAppStore.getState().seedance2Data.videoItems
-        const taskIndex = currentVideoItems.findIndex(v => v.id === videoItem.id) + 1
-        
+
         updateSeedance2Data({
           videoItems: currentVideoItems.map(v =>
             v.id === videoItem.id ? { ...v, previewUrl: result.videoUrl } : v
@@ -2908,7 +3092,7 @@ const Seedance2Panel: React.FC = () => {
         })
 
         if (activeTask?.path) {
-          await saveSeedanceVideo(activeTask.path, result.videoUrl, `enhance-${videoItem.id}`, taskIndex)
+          await saveEnhancedVideo(activeTask.path, result.videoUrl, videoItem.id, resolution)
         }
 
         setEnhancingVideos(prev => {
@@ -3014,8 +3198,7 @@ const Seedance2Panel: React.FC = () => {
 
           setEnhanceProgress(prev => ({ ...prev, [videoItem.id]: '查找本地视频文件...' }))
           const savedVideos = await getSavedVideos(activeTask.path)
-          const taskIndex = videoItems.findIndex(v => v.id === videoItem.id) + 1
-          const localVideo = savedVideos.find(v => v.index === taskIndex)
+          const localVideo = savedVideos.find(v => v.videoItemId === videoItem.id)
 
           if (!localVideo) {
             throw new Error('视频链接已失效，且未找到本地保存的视频文件。请重新生成视频后再试')
@@ -3045,7 +3228,6 @@ const Seedance2Panel: React.FC = () => {
 
       if (result.success && result.outputUrl) {
         const currentVideoItems = useAppStore.getState().seedance2Data.videoItems
-        const taskIndex = currentVideoItems.findIndex(v => v.id === videoItem.id) + 1
 
         updateSeedance2Data({
           videoItems: currentVideoItems.map(v =>
@@ -3054,7 +3236,7 @@ const Seedance2Panel: React.FC = () => {
         })
 
         if (activeTask?.path) {
-          await saveSeedanceVideo(activeTask.path, result.outputUrl, `rh-enhance-${videoItem.id}`, taskIndex)
+          await saveEnhancedVideo(activeTask.path, result.outputUrl, videoItem.id, resolution)
         }
 
         setEnhancingVideos(prev => {
@@ -3170,15 +3352,27 @@ const Seedance2Panel: React.FC = () => {
                 value={seedance2Data.selectedQualityStyle}
                 options={[
                   { value: 'cg-anime', label: 'CG动漫' },
-                  { value: 'ancient-realistic', label: '古风写实' },
+                  { value: 'ancient-realistic', label: '古风写实1' },
+                  { value: 'ancient-realistic-2', label: '古风写实2' },
                   { value: 'modern-urban', label: '现代都市' },
                 ]}
-                onChange={(value) => updateSeedance2Data({ selectedQualityStyle: value as Seedance2QualityStyle })}
+                onChange={(value) => {
+                  updateSeedance2Data({ selectedQualityStyle: value as Seedance2QualityStyle })
+                  // 如果选择古风写实2，自动切换到doubao模型
+                  if (value === 'ancient-realistic-2' && !['doubao-seed-2-0-lite', 'doubao-seed-2-0-mini'].includes(settings.analysisApi)) {
+                    useAppStore.setState({
+                      settings: { ...settings, analysisApi: 'doubao-seed-2-0-lite' }
+                    })
+                  }
+                }}
               />
             </div>
             <CustomSelect
               value={settings.analysisApi}
-              options={[
+              options={seedance2Data.selectedQualityStyle === 'ancient-realistic-2' ? [
+                { value: 'doubao-seed-2-0-lite', label: 'Doubao Seed 2.0 Lite' },
+                { value: 'doubao-seed-2-0-mini', label: 'Doubao Seed 2.0 Pro' },
+              ] : [
                 { value: 'yunwu', label: 'Yunwu (Gemini 3.1 Pro)' },
                 { value: 'yunwu3', label: 'Yunwu (Gemini 3 Pro Thinking)' },
                 { value: 'gemini-3.1-flash-lite', label: 'Yunwu (Gemini 3.1 Flash Lite)' },
@@ -3273,57 +3467,22 @@ const Seedance2Panel: React.FC = () => {
           <CustomSelect
             value={selectedProvider}
             options={[
-              { value: 'volcengine', label: '火山引擎' },
-              { value: 'runninghub', label: 'RunningHub' },
               { value: 'runninghub-enterprise', label: '企业模型' },
             ]}
-            onChange={(value) => setSelectedProvider(value as 'volcengine' | 'runninghub' | 'runninghub-enterprise')}
+            onChange={(value) => setSelectedProvider(value as 'runninghub-enterprise')}
           />
         </div>
-        {selectedProvider === 'volcengine' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>模型</span>
-            <CustomSelect
-              value={selectedModel}
-              options={[
-                { value: 'seedance-2.0', label: 'Seedance 2.0' },
-                { value: 'seedance-2.0-fast', label: 'Seedance 2.0 Fast' },
-                { value: 'custom', label: '自定义' },
-              ]}
-              onChange={(value) => setSelectedModel(value as 'seedance-2.0' | 'seedance-2.0-fast' | 'custom')}
-            />
-            {selectedModel === 'custom' && (
-              <input
-                type="text"
-                placeholder="输入模型ID或Endpoint ID"
-                value={customModelId}
-                onChange={(e) => setCustomModelId(e.target.value)}
-                style={{
-                  padding: '6px 8px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--color-border)',
-                  background: 'var(--color-bg-secondary)',
-                  color: 'var(--color-text)',
-                  fontSize: '12px',
-                  width: '180px',
-                }}
-              />
-            )}
-          </div>
-        )}
-        {(selectedProvider === 'runninghub' || selectedProvider === 'runninghub-enterprise') && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>模型</span>
-            <CustomSelect
-              value={selectedModel}
-              options={[
-                { value: 'seedance-2.0', label: 'Seedance 2.0' },
-                { value: 'seedance-2.0-fast', label: 'Seedance 2.0 Fast' },
-              ]}
-              onChange={(value) => setSelectedModel(value as 'seedance-2.0' | 'seedance-2.0-fast' | 'custom')}
-            />
-          </div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>模型</span>
+          <CustomSelect
+            value={selectedModel}
+            options={[
+              { value: 'seedance-2.0', label: 'Seedance 2.0' },
+              { value: 'seedance-2.0-fast', label: 'Seedance 2.0 Fast' },
+            ]}
+            onChange={(value) => setSelectedModel(value as 'seedance-2.0' | 'seedance-2.0-fast' | 'custom')}
+          />
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>宽高比</span>
           <CustomSelect
@@ -3352,18 +3511,33 @@ const Seedance2Panel: React.FC = () => {
         </div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', borderBottom: '1px solid var(--color-border)' }}>
-        <span style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-          共 {videoItems.length} 个视频
-        </span>
-        <button
-          className={styles.restoreBtn}
-          onClick={handleRestoreSavedVideos}
-          disabled={!activeTask?.path}
-          title="从本地恢复已保存的视频"
-        >
-          <FolderOpen size={14} style={{ marginRight: '4px' }} />
-          恢复已保存视频
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <span style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+            共 {videoItems.length} 个视频
+          </span>
+          <span style={{ fontSize: '13px', color: 'var(--color-success)', fontWeight: 500 }}>
+            已生成 {generatedShotsCount} 个镜头
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            className={styles.restoreBtn}
+            onClick={() => setShowNotificationHistory(true)}
+            title="查看生成通知记录"
+          >
+            <Bell size={14} style={{ marginRight: '4px' }} />
+            通知
+          </button>
+          <button
+            className={styles.restoreBtn}
+            onClick={handleRestoreSavedVideos}
+            disabled={!activeTask?.path}
+            title="从本地恢复已保存的视频"
+          >
+            <FolderOpen size={14} style={{ marginRight: '4px' }} />
+            恢复已保存视频
+          </button>
+        </div>
       </div>
       <div className={styles.videoList}>
         {videoItems.map((video, idx) => (
@@ -3396,6 +3570,24 @@ const Seedance2Panel: React.FC = () => {
                   />
                   <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>秒</span>
                 </div>
+                {video.taskId && (
+                  <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '4px',
+                    marginLeft: '8px',
+                    padding: '2px 6px',
+                    background: 'var(--color-bg-tertiary)',
+                    borderRadius: '4px',
+                    fontSize: '10px',
+                    color: 'var(--color-text-secondary)',
+                  }}>
+                    <span style={{ color: 'var(--color-text-tertiary)' }}>ID:</span>
+                    <span style={{ 
+                      fontFamily: 'monospace',
+                    }}>{video.taskId}</span>
+                  </div>
+                )}
               </div>
               <div className={styles.shotControls}>
                 <button
@@ -3509,6 +3701,21 @@ const Seedance2Panel: React.FC = () => {
                       <span style={{ marginLeft: '8px', fontSize: '10px', color: 'var(--color-text-tertiary)' }}>
                         (输入 @ 引用素材)
                       </span>
+                      <button
+                        onClick={() => setExpandedPromptId(video.id)}
+                        style={{
+                          marginLeft: '8px',
+                          padding: '2px 8px',
+                          fontSize: '11px',
+                          color: 'var(--color-primary)',
+                          background: 'transparent',
+                          border: '1px solid var(--color-border)',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        全屏编辑
+                      </button>
                     </label>
                     <textarea
                       ref={(el) => {
@@ -3534,8 +3741,7 @@ const Seedance2Panel: React.FC = () => {
                         style={{
                           position: 'fixed',
                           left: mentionPopup.position.x,
-                          top: mentionPopup.position.y - 8,
-                          transform: 'translateY(-100%)',
+                          top: mentionPopup.position.y,
                           zIndex: 1000,
                         }}
                       >
@@ -3600,9 +3806,18 @@ const Seedance2Panel: React.FC = () => {
                 <label className={styles.previewLabel}>视频预览</label>
                 <div className={styles.previewArea}>
                   {video.previewUrl ? (
-                    <video
+                    <VideoPlayer
                       src={video.previewUrl}
-                      controls
+                      videoIndex={idx + 1}
+                      onError={() => {
+                        // 如果正在生成，不要恢复视频（用 ref 同步检查，避免竞态）
+                        if (generatingRef.current.has(video.id)) {
+                          console.log(`[Seedance2] 视频 ${idx + 1} 正在生成中，不恢复`)
+                          return
+                        }
+                        console.log(`[Seedance2] 视频 ${idx + 1} 加载失败，尝试从本地恢复`)
+                        handleRestoreSingleVideo(video.id, idx + 1)
+                      }}
                     />
                   ) : isGenerating(video.id) ? (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '12px' }}>
@@ -3996,13 +4211,106 @@ const Seedance2Panel: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* 通知历史面板 */}
+        <Seedance2NotificationHistory
+          isOpen={showNotificationHistory}
+          onClose={() => setShowNotificationHistory(false)}
+          basePath={activeTask?.path || null}
+        />
+
+        {/* 提示词全屏编辑模态框 */}
+        {expandedPromptId && (
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.6)',
+              zIndex: 1000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '20px',
+            }}
+            onClick={() => setExpandedPromptId(null)}
+          >
+            <div
+              style={{
+                backgroundColor: 'var(--color-bg-primary)',
+                borderRadius: '12px',
+                padding: '24px',
+                width: '100%',
+                maxWidth: '1200px',
+                height: '90vh',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ color: 'var(--color-text-primary)', fontSize: '18px', fontWeight: '600' }}>提示词编辑</h3>
+                <button
+                  onClick={() => setExpandedPromptId(null)}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '14px',
+                    color: 'var(--color-text-primary)',
+                    backgroundColor: 'var(--color-primary)',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  关闭
+                </button>
+              </div>
+              <textarea
+                style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  backgroundColor: 'var(--color-bg-secondary)',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  fontSize: '14px',
+                  lineHeight: '1.8',
+                  color: 'var(--color-text-primary)',
+                  border: '1px solid var(--color-border)',
+                  resize: 'none',
+                  outline: 'none',
+                }}
+                value={videoItems.find((v) => v.id === expandedPromptId)?.prompt || ''}
+                onChange={(e) => {
+                  const videoItem = videoItems.find((v) => v.id === expandedPromptId)
+                  if (videoItem) {
+                    handleUpdatePrompt(videoItem.id, e.target.value)
+                  }
+                }}
+                autoFocus
+              />
+            </div>
+          </div>
+        )}
     </div>
   )
 
   return (
     <div className={styles.panel}>
       <aside className={styles.sidebar}>
-        <h1 className={styles.title}>Seedance2.0</h1>
+        <div className={styles.sidebarHeader}>
+          <h1 className={styles.title}>Seedance2.0</h1>
+          <button
+            className={styles.historyBtn}
+            title="通知历史"
+            onClick={() => setShowNotificationHistory(true)}
+          >
+            <Bell size={18} />
+          </button>
+        </div>
         <nav className={styles.nav}>
           <button
             className={`${styles.navBtn} ${activeTab === 'novelToScript' ? styles.navBtnActive : ''}`}
@@ -4043,6 +4351,92 @@ const Seedance2Panel: React.FC = () => {
       <AssetLibraryPanel
         isOpen={showCloudAssetLibrary}
         onClose={() => setShowCloudAssetLibrary(false)}
+      />
+
+      <Seedance2NotificationHistory
+        isOpen={showNotificationHistory}
+        onClose={() => setShowNotificationHistory(false)}
+        basePath={activeTask?.path || null}
+      />
+    </div>
+  )
+}
+
+// 视频播放器组件，带错误处理
+interface VideoPlayerProps {
+  src: string
+  videoIndex: number
+  onError: () => void
+}
+
+function VideoPlayer({ src, videoIndex, onError }: VideoPlayerProps) {
+  const [hasError, setHasError] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const videoRef = useRef<HTMLVideoElement>(null)
+
+  useEffect(() => {
+    // 重置状态当 src 改变时
+    setHasError(false)
+    setIsLoading(true)
+  }, [src])
+
+  const handleError = () => {
+    console.log(`[VideoPlayer] 视频 ${videoIndex} 加载失败:`, src)
+    setHasError(true)
+    setIsLoading(false)
+    onError()
+  }
+
+  const handleCanPlay = () => {
+    setIsLoading(false)
+  }
+
+  if (hasError) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100%',
+        gap: '8px',
+        color: 'var(--color-text-secondary)',
+        fontSize: '12px'
+      }}>
+        <span>视频加载失败</span>
+        <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary)' }}>
+          正在尝试从本地恢复...
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      {isLoading && (
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'var(--color-bg-secondary)',
+          zIndex: 1
+        }}>
+          <Loader2 size={24} className="spinning" style={{ animation: 'spin 1s linear infinite' }} />
+        </div>
+      )}
+      <video
+        ref={videoRef}
+        src={src}
+        controls
+        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+        onError={handleError}
+        onCanPlay={handleCanPlay}
+        preload="metadata"
       />
     </div>
   )

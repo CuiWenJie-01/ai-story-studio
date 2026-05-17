@@ -1,7 +1,7 @@
 {
   "name": "xuyan-ai",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.87.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,8 +10,9 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
-    "tauri:release": "tauri build && xcopy /Y \"src-tauri\\target\\release\\bundle\\nsis\\*.exe\" \"E:\\工作\\software\\\""
+    "update-version": "node scripts/update-version.js",
+    "tauri:build": "npm run update-version && tauri build",
+    "tauri:release": "npm run update-version && tauri build && move /Y \"src-tauri\\target\\release\\bundle\\nsis\\*.exe\" \"E:\\工作\\software\\\""
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
@@ -22,6 +23,7 @@
     "@tauri-apps/plugin-shell": "^2.2.0",
     "@types/react-window": "^1.8.8",
     "lucide-react": "^0.577.0",
+    "mysql2": "^3.22.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-window": "^2.2.7",

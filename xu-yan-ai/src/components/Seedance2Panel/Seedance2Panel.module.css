@@ -17,13 +17,39 @@
   gap: var(--spacing-lg);
 }
 
+.sidebarHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: var(--spacing-md);
+  border-bottom: 2px solid var(--color-accent);
+}
+
 .title {
   font-size: 20px;
   font-weight: 700;
   color: var(--color-text-primary);
   margin: 0;
-  padding-bottom: var(--spacing-md);
-  border-bottom: 2px solid var(--color-accent);
+}
+
+.historyBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.historyBtn:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
 }
 
 .nav {
@@ -1355,11 +1381,11 @@
 @keyframes mentionFadeIn {
   from {
     opacity: 0;
-    transform: translateY(-100%) scale(0.95);
+    transform: translateY(-8px) scale(0.95);
   }
   to {
     opacity: 1;
-    transform: translateY(-100%) scale(1);
+    transform: translateY(0) scale(1);
   }
 }
 

@@ -1,15 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-
-export interface User {
-  id: number
-  nickname: string
-  account: string
-  company: string
-  department: string
-  remaining_days: number
-  login_limit: number
-  is_online: boolean
-}
+import type { User } from '../types'
 
 export interface AuthResponse {
   success: boolean
@@ -17,13 +7,27 @@ export interface AuthResponse {
   user: User | null
 }
 
+const INSTANCE_ID_KEY = 'xuyan_instance_id'
+
+function getInstanceId(): string {
+  let instanceId = localStorage.getItem(INSTANCE_ID_KEY)
+  if (!instanceId) {
+    instanceId = `inst_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`
+    localStorage.setItem(INSTANCE_ID_KEY, instanceId)
+  }
+  return instanceId
+}
+
 export const authService = {
+  getInstanceId,
+
   async login(account: string, password: string): Promise<AuthResponse> {
     console.log('[Auth] 尝试登录:', account)
     try {
       const response = await invoke<AuthResponse>('tauri_login', {
         account,
         password,
+        instanceId: getInstanceId(),
       })
       console.log('[Auth] 登录结果:', response)
       return response
@@ -70,6 +74,7 @@ export const authService = {
     try {
       const response = await invoke<AuthResponse>('tauri_logout', {
         account,
+        instanceId: getInstanceId(),
       })
       console.log('[Auth] 退出登录结果:', response)
       return response
@@ -185,6 +190,52 @@ export const authService = {
       return {
         valid: false,
         message: error instanceof Error ? error.message : '验证失败',
+      }
+    }
+  },
+
+  async forceLogout(account: string): Promise<{ success: boolean; message: string }> {
+    console.log('[Auth] 强制退出登录:', account)
+    try {
+      const response = await invoke<{ success: boolean; message: string }>('tauri_force_logout', { account, instanceId: getInstanceId() })
+      console.log('[Auth] 强制退出登录结果:', response)
+      return response
+    } catch (error) {
+      console.error('[Auth] 强制退出登录失败:', error)
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : '强制退出失败',
+      }
+    }
+  },
+
+  async resetOnlineCount(userId: number): Promise<{ success: boolean; message: string }> {
+    console.log('[Auth] 重置用户在线数:', userId)
+    try {
+      const response = await invoke<{ success: boolean; message: string }>('tauri_reset_online_count', { userId })
+      console.log('[Auth] 重置在线数结果:', response)
+      return response
+    } catch (error) {
+      console.error('[Auth] 重置在线数失败:', error)
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : '重置失败',
+      }
+    }
+  },
+
+  async restoreSession(account: string): Promise<AuthResponse> {
+    console.log('[Auth] 恢复会话:', account)
+    try {
+      const response = await invoke<AuthResponse>('tauri_restore_session', { account, instanceId: getInstanceId() })
+      console.log('[Auth] 恢复会话结果:', response)
+      return response
+    } catch (error) {
+      console.error('[Auth] 恢复会话失败:', error)
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : '恢复会话失败',
+        user: null,
       }
     }
   },

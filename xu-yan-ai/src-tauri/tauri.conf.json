@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "旭言AI",
-  "version": "0.1.0",
+  "version": "1.87.0",
   "identifier": "com.xuyan.ai",
   "build": {
     "frontendDist": "../dist",
@@ -41,7 +41,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "publisher": "Hefei Xuyan",
     "copyright": "Hefei Xuyan Cultural Media Co., Ltd.",
     "icon": [
@@ -55,7 +57,10 @@
       "nsis": {
         "installerIcon": "icons/icon.ico",
         "installMode": "currentUser",
-        "languages": ["SimpChinese", "English"],
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
         "installerHooks": "nsis-hooks.nsi"
       }
     },
