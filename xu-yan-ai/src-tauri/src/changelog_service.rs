@@ -1,13 +1,7 @@
+use crate::database;
+use chrono::Utc;
+use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use mysql::*;
-use mysql::prelude::*;
-use chrono::{NaiveDateTime, Utc};
-
-const DB_HOST: &str = "mysql6.sqlpub.com";
-const DB_PORT: u16 = 3311;
-const DB_NAME: &str = "gujieuserdata";
-const DB_USER: &str = "xiaoxinna";
-const DB_PASS: &str = "hBeB6u5wHdh032GM";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChangeItem {
@@ -40,95 +34,66 @@ pub struct AddChangelogResponse {
     pub data: Option<Changelog>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct AddChangelogRequest {
-    pub user_id: u32,
-    pub version: String,
-    pub content: Vec<ChangeItem>,
-}
-
-fn get_conn() -> Result<PooledConn, String> {
-    let opts = OptsBuilder::new()
-        .ip_or_hostname(Some(DB_HOST))
-        .tcp_port(DB_PORT)
-        .db_name(Some(DB_NAME))
-        .user(Some(DB_USER))
-        .pass(Some(DB_PASS));
-    let pool = Pool::new(opts)
-        .map_err(|e| format!("数据库连接失败: {}", e))?;
-    pool.get_conn()
-        .map_err(|e| format!("获取连接失败: {}", e))
-}
-
 pub async fn check_is_admin(user_id: u32) -> Result<bool, String> {
-    let mut conn = get_conn()?;
-    
-    let is_admin: Option<bool> = conn
-        .exec_first(
-            "SELECT is_admin FROM users WHERE id = ?",
-            (&user_id,)
-        )
-        .map_err(|e| format!("查询用户权限失败: {}", e))?;
-    
-    Ok(is_admin.unwrap_or(false))
+    let conn = database::connection()?;
+    conn.query_row(
+        "SELECT is_admin FROM users WHERE id=?1",
+        params![user_id],
+        |row| row.get::<_, i64>(0),
+    )
+    .optional()
+    .map(|value| value.unwrap_or(0) != 0)
+    .map_err(|e| format!("查询用户权限失败: {e}"))
 }
 
 pub async fn get_changelogs() -> ChangelogResponse {
-    println!("[Changelog] 获取更新日志列表");
-    
-    let mut conn = match get_conn() {
-        Ok(c) => c,
+    let conn = match database::connection() {
+        Ok(conn) => conn,
         Err(e) => {
             return ChangelogResponse {
                 success: false,
                 message: e,
                 data: None,
-            };
+            }
         }
     };
-    
-    let result = match conn.query_map(
-        "SELECT c.id, c.version, c.content, c.created_at, c.created_by, u.nickname 
-         FROM changelogs c 
-         LEFT JOIN users u ON c.created_by = u.id 
-         ORDER BY c.created_at DESC",
-        |(id, version, content, created_at, created_by, creator_name): (u32, String, String, NaiveDateTime, u32, String)| {
-            (id, version, content, created_at, created_by, creator_name)
-        }
+    let mut statement = match conn.prepare(
+        "SELECT c.id, c.version, c.content, c.created_at, c.created_by,
+                COALESCE(u.nickname, '未知')
+         FROM changelogs c LEFT JOIN users u ON c.created_by=u.id
+         ORDER BY c.created_at DESC, c.id DESC",
     ) {
-        Ok(r) => r,
+        Ok(value) => value,
         Err(e) => {
             return ChangelogResponse {
                 success: false,
-                message: format!("查询更新日志失败: {}", e),
+                message: format!("查询更新日志失败: {e}"),
                 data: None,
-            };
+            }
         }
     };
-    
-    let changelogs: Vec<Changelog> = result
-        .into_iter()
-        .map(|(id, version, content, created_at, created_by, creator_name)| {
-            let content_items: Vec<ChangeItem> = serde_json::from_str(&content)
-                .unwrap_or_else(|_| vec![]);
-            
-            Changelog {
-                id,
-                version,
-                content: content_items,
-                created_at: created_at.format("%Y-%m-%d").to_string(),
-                created_by,
-                creator_name,
-            }
+    let rows = statement.query_map([], |row| {
+        let content: String = row.get(2)?;
+        Ok(Changelog {
+            id: row.get::<_, i64>(0)? as u32,
+            version: row.get(1)?,
+            content: serde_json::from_str(&content).unwrap_or_default(),
+            created_at: row.get::<_, String>(3)?.chars().take(10).collect(),
+            created_by: row.get::<_, i64>(4)? as u32,
+            creator_name: row.get(5)?,
         })
-        .collect();
-    
-    println!("[Changelog] 获取到 {} 条更新日志", changelogs.len());
-    
-    ChangelogResponse {
-        success: true,
-        message: "获取成功".to_string(),
-        data: Some(changelogs),
+    });
+    match rows.and_then(Iterator::collect) {
+        Ok(data) => ChangelogResponse {
+            success: true,
+            message: "获取成功".into(),
+            data: Some(data),
+        },
+        Err(e) => ChangelogResponse {
+            success: false,
+            message: format!("查询更新日志失败: {e}"),
+            data: None,
+        },
     }
 }
 
@@ -137,163 +102,101 @@ pub async fn add_changelog(
     version: String,
     content: Vec<ChangeItem>,
 ) -> AddChangelogResponse {
-    println!("[Changelog] 添加更新日志: user_id={}, version={}", user_id, version);
-    
-    match check_is_admin(user_id).await {
-        Ok(true) => {},
-        Ok(false) => {
-            return AddChangelogResponse {
-                success: false,
-                message: "权限不足，只有管理员可以添加更新日志".to_string(),
-                data: None,
-            };
-        },
-        Err(e) => {
-            return AddChangelogResponse {
-                success: false,
-                message: e,
-                data: None,
-            };
-        }
-    }
-    
-    if version.is_empty() {
+    if !check_is_admin(user_id).await.unwrap_or(false) {
         return AddChangelogResponse {
             success: false,
-            message: "版本号不能为空".to_string(),
+            message: "权限不足，只有管理员可以添加更新日志".into(),
             data: None,
         };
     }
-    
-    if content.is_empty() {
+    if version.trim().is_empty() || content.is_empty() {
         return AddChangelogResponse {
             success: false,
-            message: "更新内容不能为空".to_string(),
+            message: "版本号和更新内容不能为空".into(),
             data: None,
         };
     }
-    
     let content_json = match serde_json::to_string(&content) {
-        Ok(j) => j,
+        Ok(value) => value,
         Err(e) => {
             return AddChangelogResponse {
                 success: false,
-                message: format!("序列化内容失败: {}", e),
+                message: format!("序列化内容失败: {e}"),
                 data: None,
-            };
+            }
         }
     };
-    
-    let mut conn = match get_conn() {
-        Ok(c) => c,
+    let conn = match database::connection() {
+        Ok(conn) => conn,
         Err(e) => {
             return AddChangelogResponse {
                 success: false,
                 message: e,
                 data: None,
-            };
+            }
         }
     };
-    
-    let insert_result = conn.exec_drop(
-        "INSERT INTO changelogs (version, content, created_by, is_admin_operation) VALUES (?, ?, ?, TRUE)",
-        (&version, &content_json, &user_id)
-    );
-    
-    match insert_result {
-        Ok(_) => {
-            let id: Option<u32> = conn
-                .exec_first("SELECT LAST_INSERT_ID()", ())
-                .ok()
-                .flatten();
-            
-            let creator_name: String = conn
-                .exec_first(
-                    "SELECT nickname FROM users WHERE id = ?",
-                    (&user_id,)
-                )
-                .ok()
-                .flatten()
-                .unwrap_or_else(|| "未知".to_string());
-            
-            println!("[Changelog] 添加成功: id={}", id.unwrap_or(0));
-            
-            AddChangelogResponse {
-                success: true,
-                message: "添加成功".to_string(),
-                data: Some(Changelog {
-                    id: id.unwrap_or(0),
-                    version,
-                    content,
-                    created_at: Utc::now().format("%Y-%m-%d").to_string(),
-                    created_by: user_id,
-                    creator_name,
-                }),
-            }
-        }
-        Err(e) => {
-            AddChangelogResponse {
-                success: false,
-                message: format!("添加失败: {}", e),
-                data: None,
-            }
-        }
+    if let Err(e) = conn.execute(
+        "INSERT INTO changelogs(version, content, created_by) VALUES (?1, ?2, ?3)",
+        params![version.trim(), content_json, user_id],
+    ) {
+        return AddChangelogResponse {
+            success: false,
+            message: format!("添加失败: {e}"),
+            data: None,
+        };
+    }
+    let id = conn.last_insert_rowid() as u32;
+    let creator_name = conn
+        .query_row(
+            "SELECT nickname FROM users WHERE id=?1",
+            params![user_id],
+            |row| row.get(0),
+        )
+        .unwrap_or_else(|_| "未知".into());
+    AddChangelogResponse {
+        success: true,
+        message: "添加成功".into(),
+        data: Some(Changelog {
+            id,
+            version,
+            content,
+            created_at: Utc::now().format("%Y-%m-%d").to_string(),
+            created_by: user_id,
+            creator_name,
+        }),
     }
 }
 
 pub async fn delete_changelog(user_id: u32, changelog_id: u32) -> ChangelogResponse {
-    println!("[Changelog] 删除更新日志: user_id={}, changelog_id={}", user_id, changelog_id);
-    
-    match check_is_admin(user_id).await {
-        Ok(true) => {},
-        Ok(false) => {
-            return ChangelogResponse {
-                success: false,
-                message: "权限不足，只有管理员可以删除更新日志".to_string(),
-                data: None,
-            };
-        },
-        Err(e) => {
-            return ChangelogResponse {
-                success: false,
-                message: e,
-                data: None,
-            };
-        }
+    if !check_is_admin(user_id).await.unwrap_or(false) {
+        return ChangelogResponse {
+            success: false,
+            message: "权限不足，只有管理员可以删除更新日志".into(),
+            data: None,
+        };
     }
-    
-    let mut conn = match get_conn() {
-        Ok(c) => c,
+    let conn = match database::connection() {
+        Ok(conn) => conn,
         Err(e) => {
             return ChangelogResponse {
                 success: false,
                 message: e,
                 data: None,
-            };
+            }
         }
     };
-    
-    let delete_result = conn.exec_drop(
-        "DELETE FROM changelogs WHERE id = ?",
-        (&changelog_id,)
-    );
-    
-    match delete_result {
-        Ok(_) => {
-            println!("[Changelog] 删除成功: id={}", changelog_id);
-            ChangelogResponse {
-                success: true,
-                message: "删除成功".to_string(),
-                data: None,
-            }
-        }
-        Err(e) => {
-            ChangelogResponse {
-                success: false,
-                message: format!("删除失败: {}", e),
-                data: None,
-            }
-        }
+    match conn.execute("DELETE FROM changelogs WHERE id=?1", params![changelog_id]) {
+        Ok(_) => ChangelogResponse {
+            success: true,
+            message: "删除成功".into(),
+            data: None,
+        },
+        Err(e) => ChangelogResponse {
+            success: false,
+            message: format!("删除失败: {e}"),
+            data: None,
+        },
     }
 }
 

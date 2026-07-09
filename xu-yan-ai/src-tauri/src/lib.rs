@@ -4,14 +4,13 @@ mod minimax_tts;
 
 use tauri::Emitter;
 mod frame_extractor;
+mod database;
 mod auth_service;
 mod changelog_service;
 mod cloud_asset;
-mod email_service;
 
 use std::fs;
 use serde::Serialize;
-use tauri::Manager;
 
 #[derive(Serialize)]
 struct RenameResult {
@@ -56,6 +55,7 @@ pub fn run() {
             app.handle().plugin(tauri_plugin_fs::init())?;
             app.handle().plugin(tauri_plugin_shell::init())?;
             app.handle().plugin(tauri_plugin_http::init())?;
+            database::init(app.handle())?;
             println!("[旭言AI] 插件加载完成");
 
             // Check command line args for folder path (right-click open)
@@ -105,8 +105,6 @@ pub fn run() {
             auth_service::tauri_force_logout,
             auth_service::tauri_reset_online_count,
             auth_service::tauri_restore_session,
-            email_service::tauri_send_email_code,
-            email_service::tauri_verify_email_code,
             changelog_service::tauri_get_changelogs,
             changelog_service::tauri_add_changelog,
             changelog_service::tauri_delete_changelog,
