@@ -1,11 +1,19 @@
 .container {
   display: flex;
+  width: 100%;
   height: 100vh;
+  height: 100dvh;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   background: var(--color-bg-primary);
 }
 
 .sidebar {
   width: 240px;
+  min-width: 240px;
+  min-height: 0;
+  overflow-y: auto;
   background: var(--color-bg-secondary);
   border-right: 1px solid var(--color-border);
   display: flex;
@@ -138,6 +146,8 @@
 
 .main {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   padding: var(--spacing-xl);
   overflow-y: auto;
 }
@@ -151,6 +161,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
   margin-bottom: var(--spacing-xl);
 }
 
@@ -164,6 +176,9 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .createBtn {
@@ -606,12 +621,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: clamp(8px, 2vw, 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   z-index: 1000;
 }
 
 .dialog {
   width: 100%;
   max-width: 480px;
+  max-height: calc(100vh - 16px);
+  max-height: calc(100dvh - 16px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
@@ -624,6 +647,7 @@
   justify-content: space-between;
   padding: var(--spacing-lg);
   border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .dialogHeader h3 {
@@ -654,6 +678,9 @@
 
 .dialogContent {
   padding: var(--spacing-lg);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .field {
@@ -742,6 +769,7 @@
   gap: var(--spacing-sm);
   padding: var(--spacing-lg);
   border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .cancelBtn,
@@ -777,6 +805,132 @@
 .confirmBtn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+@media (max-width: 1100px) {
+  .sidebar {
+    width: 200px;
+    min-width: 200px;
+  }
+
+  .main {
+    padding: var(--spacing-lg);
+  }
+
+  .sectionHeader {
+    margin-bottom: var(--spacing-lg);
+  }
+
+  .projectGrid {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  }
+}
+
+@media (max-width: 940px) {
+  .sidebar {
+    width: 176px;
+    min-width: 176px;
+    padding: var(--spacing-sm);
+  }
+
+  .logo {
+    margin-bottom: var(--spacing-md);
+  }
+
+  .logoText {
+    font-size: 17px;
+  }
+
+  .main {
+    padding: var(--spacing-md);
+  }
+
+  .headerActions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .headerActions > :first-child {
+    flex: 1 1 240px;
+  }
+
+  .projectGrid {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  }
+}
+
+@media (max-height: 760px) {
+  .logo {
+    padding: var(--spacing-sm) 0;
+    margin-bottom: var(--spacing-md);
+  }
+
+  .navItem {
+    padding-block: 6px;
+  }
+
+  .userSection {
+    padding: var(--spacing-sm) 0 0;
+  }
+
+  .dialogHeader,
+  .dialogActions {
+    padding: var(--spacing-md);
+  }
+
+  .dialogContent {
+    padding: var(--spacing-md);
+  }
+
+  .field {
+    margin-bottom: var(--spacing-md);
+  }
+
+  .styleCard {
+    padding: 10px var(--spacing-md);
+  }
+
+  .preview {
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+
+  .folderTree {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .folderItem {
+    grid-column: 1 / -1;
+  }
+
+  .subFolderItem {
+    padding-left: var(--spacing-md);
+  }
+}
+
+@media (max-width: 520px) {
+  .dialogOverlay {
+    padding: 8px;
+    align-items: stretch;
+  }
+
+  .dialog {
+    max-height: calc(100dvh - 16px);
+    border-radius: var(--radius-lg);
+  }
+
+  .styleGrid,
+  .folderTree {
+    grid-template-columns: 1fr;
+  }
+
+  .folderItem {
+    grid-column: auto;
+  }
+
+  .dialogActions > button {
+    flex: 1;
+  }
 }
 
 /* 启动验证遮罩 */

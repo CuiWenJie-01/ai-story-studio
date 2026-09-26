@@ -16,6 +16,7 @@ dist-ssr/
 
 # Vite cache
 .vite/
+.npm-cache/
 
 # TypeScript build cache
 *.tsbuildinfo

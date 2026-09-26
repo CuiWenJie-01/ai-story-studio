@@ -1,6 +1,8 @@
 .app {
   display: flex;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
   background: var(--color-bg-primary);
   opacity: 1;
@@ -27,6 +29,8 @@
 
 .main {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -40,18 +44,22 @@
   background: var(--color-bg-secondary);
   border-bottom: 1px solid var(--color-border);
   min-height: 60px;
+  gap: var(--spacing-md);
 }
 
 .headerLeft {
   display: flex;
   align-items: center;
   gap: var(--spacing-lg);
+  flex: 1;
+  min-width: 0;
 }
 
 .taskInfo {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
+  min-width: 0;
 }
 
 .taskInfo h2 {
@@ -59,6 +67,9 @@
   font-weight: 600;
   color: var(--color-text-primary);
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shotBadge {
@@ -155,6 +166,7 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
+  flex-shrink: 0;
 }
 
 .apiIndicator {
@@ -209,6 +221,8 @@
 
 .content {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   gap: var(--spacing-lg);
   padding: var(--spacing-lg);
@@ -218,6 +232,7 @@
 .leftPanel {
   width: 280px;
   min-width: 280px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
@@ -266,6 +281,8 @@
 
 .rightPanel {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -327,4 +344,52 @@
   overflow: hidden;
   width: 100%;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+@media (max-width: 1200px) {
+  .header,
+  .content {
+    padding-inline: var(--spacing-md);
+  }
+
+  .content {
+    gap: var(--spacing-md);
+  }
+
+  .leftPanel {
+    width: 240px;
+    min-width: 240px;
+  }
+}
+
+@media (max-width: 1000px) {
+  .headerLeft {
+    gap: var(--spacing-sm);
+  }
+
+  .apiIndicator {
+    display: none;
+  }
+
+  .leftPanel {
+    width: 220px;
+    min-width: 220px;
+  }
+}
+
+@media (max-height: 700px) {
+  .header {
+    min-height: 50px;
+    padding-block: var(--spacing-xs);
+  }
+
+  .content {
+    padding-block: var(--spacing-sm);
+  }
+
+  .statusInfo {
+    padding-block: 2px;
+  }
 }

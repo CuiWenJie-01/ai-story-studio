@@ -9,6 +9,8 @@
 html, body, #root {
   height: 100%;
   width: 100%;
+  min-width: 0;
+  min-height: 0;
 }
 
 body {
@@ -19,6 +21,7 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition: background-color var(--transition-normal), color var(--transition-normal);
+  overflow: hidden;
 }
 
 ::-webkit-scrollbar {

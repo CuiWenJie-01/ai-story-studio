@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::process::Command;
+use std::{path::PathBuf, process::Command};
 use tauri::Manager;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -10,24 +10,36 @@ pub struct ExtractFrameResult {
     pub error: Option<String>,
 }
 
-fn get_ffmpeg_path(app_handle: &tauri::AppHandle) -> std::path::PathBuf {
-    let resource_dir = app_handle.path().resource_dir().unwrap_or_else(|_| std::env::current_dir().unwrap());
-    
-    let bundled_ffmpeg = resource_dir.join("binaries").join("ffmpeg-7.1.1-essentials_build").join("bin").join("ffmpeg.exe");
-    
-    if bundled_ffmpeg.exists() {
-        println!("[FrameExtractor] 使用打包的 ffmpeg: {:?}", bundled_ffmpeg);
-        bundled_ffmpeg
-    } else {
-        let fallback = resource_dir.join("binaries").join("ffmpeg.exe");
-        if fallback.exists() {
-            println!("[FrameExtractor] 使用打包的 ffmpeg (fallback): {:?}", fallback);
-            fallback
-        } else {
-            println!("[FrameExtractor] 使用系统 ffmpeg");
-            std::path::PathBuf::from("ffmpeg")
+fn get_ffmpeg_path(app_handle: &tauri::AppHandle) -> PathBuf {
+    let relative_paths = [
+        PathBuf::from("binaries/ffmpeg-7.1.1-essentials_build/bin/ffmpeg.exe"),
+        PathBuf::from("binaries/ffmpeg.exe"),
+    ];
+
+    if let Ok(resource_dir) = app_handle.path().resource_dir() {
+        for relative_path in &relative_paths {
+            let candidate = resource_dir.join(relative_path);
+            if candidate.exists() {
+                println!("[FrameExtractor] 使用打包的 ffmpeg: {:?}", candidate);
+                return candidate;
+            }
         }
     }
+
+    // `tauri dev` 不再强制打包 FFmpeg；开发时直接使用项目内的二进制文件。
+    if cfg!(debug_assertions) {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for relative_path in &relative_paths {
+            let candidate = manifest_dir.join(relative_path);
+            if candidate.exists() {
+                println!("[FrameExtractor] 使用开发环境 ffmpeg: {:?}", candidate);
+                return candidate;
+            }
+        }
+    }
+
+    println!("[FrameExtractor] 使用系统 ffmpeg");
+    PathBuf::from("ffmpeg")
 }
 
 #[tauri::command]
@@ -37,15 +49,21 @@ pub async fn extract_last_frame(
     output_path: String,
     thumbnail_path: String,
 ) -> ExtractFrameResult {
-    println!("[FrameExtractor] 开始抽帧: {} -> {}", video_path, output_path);
+    println!(
+        "[FrameExtractor] 开始抽帧: {} -> {}",
+        video_path, output_path
+    );
 
     let ffmpeg_path = get_ffmpeg_path(&app_handle);
 
     let output = Command::new(&ffmpeg_path)
         .args([
-            "-sseof", "-0.1",
-            "-i", &video_path,
-            "-vframes", "1",
+            "-sseof",
+            "-0.1",
+            "-i",
+            &video_path,
+            "-vframes",
+            "1",
             "-y",
             &output_path,
         ])
@@ -57,11 +75,15 @@ pub async fn extract_last_frame(
                 println!("[FrameExtractor] 抽帧成功: {}", output_path);
 
                 let thumb_result = generate_thumbnail(&ffmpeg_path, &output_path, &thumbnail_path);
-                
+
                 ExtractFrameResult {
                     success: true,
                     image_path: Some(output_path.clone()),
-                    thumbnail_path: if thumb_result { Some(thumbnail_path) } else { None },
+                    thumbnail_path: if thumb_result {
+                        Some(thumbnail_path)
+                    } else {
+                        None
+                    },
                     error: None,
                 }
             } else {
@@ -95,16 +117,22 @@ pub async fn extract_frame_at_time(
     thumbnail_path: String,
     time_seconds: f64,
 ) -> ExtractFrameResult {
-    println!("[FrameExtractor] 开始抽帧 (时间点 {}s): {} -> {}", time_seconds, video_path, output_path);
+    println!(
+        "[FrameExtractor] 开始抽帧 (时间点 {}s): {} -> {}",
+        time_seconds, video_path, output_path
+    );
 
     let ffmpeg_path = get_ffmpeg_path(&app_handle);
     let time_str = format!("{:.2}", time_seconds);
 
     let output = Command::new(&ffmpeg_path)
         .args([
-            "-ss", &time_str,
-            "-i", &video_path,
-            "-vframes", "1",
+            "-ss",
+            &time_str,
+            "-i",
+            &video_path,
+            "-vframes",
+            "1",
             "-y",
             &output_path,
         ])
@@ -116,11 +144,15 @@ pub async fn extract_frame_at_time(
                 println!("[FrameExtractor] 抽帧成功: {}", output_path);
 
                 let thumb_result = generate_thumbnail(&ffmpeg_path, &output_path, &thumbnail_path);
-                
+
                 ExtractFrameResult {
                     success: true,
                     image_path: Some(output_path.clone()),
-                    thumbnail_path: if thumb_result { Some(thumbnail_path) } else { None },
+                    thumbnail_path: if thumb_result {
+                        Some(thumbnail_path)
+                    } else {
+                        None
+                    },
                     error: None,
                 }
             } else {
@@ -146,13 +178,22 @@ pub async fn extract_frame_at_time(
     }
 }
 
-fn generate_thumbnail(ffmpeg_path: &std::path::Path, image_path: &str, thumbnail_path: &str) -> bool {
-    println!("[FrameExtractor] 生成缩略图: {} -> {}", image_path, thumbnail_path);
+fn generate_thumbnail(
+    ffmpeg_path: &std::path::Path,
+    image_path: &str,
+    thumbnail_path: &str,
+) -> bool {
+    println!(
+        "[FrameExtractor] 生成缩略图: {} -> {}",
+        image_path, thumbnail_path
+    );
 
     let output = Command::new(ffmpeg_path)
         .args([
-            "-i", image_path,
-            "-vf", "scale=320:-1",
+            "-i",
+            image_path,
+            "-vf",
+            "scale=320:-1",
             "-y",
             thumbnail_path,
         ])

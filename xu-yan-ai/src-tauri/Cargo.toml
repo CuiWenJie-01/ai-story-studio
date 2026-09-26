@@ -44,7 +44,7 @@ once_cell = "1.0"
 rand = "0.8"
 regex = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
-tauri-plugin-http = "2.5.8"
+tauri-plugin-http = "=2.6.1"
 urlencoding = "2.1"
 serde-xml-rs = "0.6"
 ve-tos-rust-sdk = "2.9"

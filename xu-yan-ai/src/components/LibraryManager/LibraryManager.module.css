@@ -8,6 +8,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: clamp(8px, 2vw, 24px);
+  overflow-y: auto;
   z-index: 1000;
   backdrop-filter: blur(4px);
   animation: fadeIn 0.2s ease-out;
@@ -27,7 +29,8 @@
   border-radius: var(--radius-lg);
   width: 90%;
   max-width: 700px;
-  max-height: 85vh;
+  max-height: calc(100dvh - 16px);
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow-xl);
@@ -81,6 +84,7 @@
 
 .content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--spacing-md);
 }

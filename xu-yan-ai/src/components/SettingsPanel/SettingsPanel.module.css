@@ -8,6 +8,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: clamp(8px, 2vw, 24px);
+  overflow-y: auto;
   z-index: 1000;
   animation: fadeIn 0.2s ease;
 }
@@ -22,8 +24,10 @@
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-xl);
   width: 560px;
-  max-width: 90vw;
-  max-height: 90vh;
+  max-width: 100%;
+  max-height: calc(100dvh - 16px);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   animation: slideUp 0.3s ease;
 }
@@ -45,6 +49,8 @@
   padding: var(--spacing-md) var(--spacing-lg);
   border-bottom: 1px solid var(--color-border);
   gap: var(--spacing-sm);
+  flex-shrink: 0;
+  overflow-x: auto;
 }
 
 .tab {
@@ -77,6 +83,7 @@
   justify-content: space-between;
   padding: var(--spacing-lg);
   border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .header h2 {
@@ -106,7 +113,9 @@
 .content {
   padding: var(--spacing-lg);
   overflow-y: auto;
-  max-height: calc(90vh - 100px);
+  max-height: none;
+  min-height: 0;
+  flex: 1;
 }
 
 .section {
@@ -274,7 +283,9 @@
 .apiContent {
   display: flex;
   flex-direction: column;
-  height: calc(90vh - 120px);
+  height: auto;
+  min-height: 0;
+  flex: 1;
 }
 
 .providerTabs {
