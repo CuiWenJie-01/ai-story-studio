@@ -535,11 +535,16 @@ function App() {
   }, [activeTask?.path])
 
   useEffect(() => {
+    if (settings.demoMode) {
+      taskQueueManager.setMaxConcurrent(settings.maxConcurrent)
+      return
+    }
+
     if ((imageApiProvider === 'runninghub' || videoApiProvider === 'runninghub') && apiConfigs.runninghub) {
       taskQueueManager.setService(apiConfigs.runninghub)
       taskQueueManager.setMaxConcurrent(settings.maxConcurrent)
     }
-  }, [imageApiProvider, videoApiProvider, apiConfigs.runninghub, settings.maxConcurrent])
+  }, [imageApiProvider, videoApiProvider, apiConfigs.runninghub, settings.maxConcurrent, settings.demoMode])
 
   useEffect(() => {
     const applyTheme = (themeValue: string) => {
@@ -562,8 +567,9 @@ function App() {
   }, [theme])
 
   const currentApiProvider = useMemo(() => {
+    if (settings.demoMode) return '本地演示'
     return activeMode === 'video' ? videoApiProvider : imageApiProvider
-  }, [activeMode, imageApiProvider, videoApiProvider])
+  }, [activeMode, imageApiProvider, videoApiProvider, settings.demoMode])
 
   const handleModeChange = useCallback((mode: WorkType) => {
     setActiveMode(mode)

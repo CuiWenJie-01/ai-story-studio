@@ -1,6 +1,10 @@
 import { RunningHubService } from './runningHubService'
 import type { AccountStatus } from './runningHubService'
-import type { ApiConfig, RunningHubApiMapping } from '../types'
+import type { ApiConfig, DemoScenario, RunningHubApiMapping } from '../types'
+
+export interface QueueTaskOptions {
+  demoScenario?: DemoScenario
+}
 
 export interface QueuedTask {
   id: string
@@ -17,7 +21,9 @@ export interface QueuedTask {
     outputUrl?: string
     error?: string
     cancelled?: boolean
+    demo?: boolean
   }
+  demoScenario?: DemoScenario
   addedAt: number
   startedAt?: number
   completedAt?: number
@@ -63,12 +69,12 @@ class TaskQueueManager {
     return (activeCount + pendingCount) >= this.maxConcurrent
   }
 
-  async willBeQueuedAsync(): Promise<boolean> {
+  async willBeQueuedAsync(isDemoTask: boolean = false): Promise<boolean> {
     const pendingCount = this.queue.filter(t => t.status === 'pending').length
     const activeCount = this.activeTasks.size
     
     let backendRunning = 0
-    if (this.service) {
+    if (!isDemoTask && this.service) {
       try {
         const accountStatus = await this.service.getAccountStatus()
         if (accountStatus.success) {
@@ -176,7 +182,8 @@ class TaskQueueManager {
     type: 'image' | 'video' | 'viewAngle',
     mapping: RunningHubApiMapping,
     params: Record<string, unknown>,
-    onProgress?: (progress: number, message: string) => void
+    onProgress?: (progress: number, message: string) => void,
+    options?: QueueTaskOptions
   ): Promise<string> {
     const task: QueuedTask = {
       id: this.generateId(),
@@ -185,6 +192,7 @@ class TaskQueueManager {
       mapping,
       params,
       onProgress,
+      demoScenario: options?.demoScenario,
       status: 'pending',
       addedAt: Date.now(),
     }
@@ -302,6 +310,76 @@ class TaskQueueManager {
     return this.service.getAccountStatus()
   }
 
+  private async waitForDemoStep(milliseconds: number): Promise<void> {
+    await new Promise(resolve => setTimeout(resolve, milliseconds))
+  }
+
+  private async executeDemoTask(
+    task: QueuedTask,
+    checkCancelled: () => boolean
+  ): Promise<NonNullable<QueuedTask['result']>> {
+    const scenario = task.demoScenario || 'success'
+    const report = async (progress: number, message: string, waitMs: number = 900) => {
+      if (checkCancelled()) return false
+      task.onProgress?.(progress, message)
+      await this.waitForDemoStep(waitMs)
+      return !checkCancelled()
+    }
+
+    const commonStages: Array<[number, string, number?]> = [
+      [8, '本地演示：正在创建后台任务...'],
+      [20, '本地演示：任务已提交，等待处理...'],
+      [38, '本地演示：后台任务处理中...'],
+    ]
+
+    for (const [progress, message, waitMs] of commonStages) {
+      if (!(await report(progress, message, waitMs))) {
+        return { success: false, cancelled: true, error: '任务已取消', demo: true }
+      }
+    }
+
+    if (scenario === 'recover' || scenario === 'failure') {
+      if (!(await report(42, '模拟网络异常，正在重试 (1/2)...', 1800))) {
+        return { success: false, cancelled: true, error: '任务已取消', demo: true }
+      }
+
+      if (scenario === 'failure') {
+        if (!(await report(42, '模拟网络异常，正在重试 (2/2)...', 1800))) {
+          return { success: false, cancelled: true, error: '任务已取消', demo: true }
+        }
+        return {
+          success: false,
+          error: '本地演示：连续重试 2 次后任务失败',
+          demo: true,
+        }
+      }
+
+      if (!(await report(48, '网络已恢复，继续查询原任务...', 1200))) {
+        return { success: false, cancelled: true, error: '任务已取消', demo: true }
+      }
+    }
+
+    const finishingStages: Array<[number, string, number?]> = [
+      [62, '本地演示：生成处理中...'],
+      [80, '本地演示：正在整理生成结果...'],
+      [94, '本地演示：正在保存状态...'],
+    ]
+
+    for (const [progress, message, waitMs] of finishingStages) {
+      if (!(await report(progress, message, waitMs))) {
+        return { success: false, cancelled: true, error: '任务已取消', demo: true }
+      }
+    }
+
+    task.onProgress?.(100, '本地演示：任务完成')
+    return {
+      success: true,
+      taskId: `demo-backend-${task.id}`,
+      outputUrl: `demo://${task.type}/${task.id}`,
+      demo: true,
+    }
+  }
+
   private async processQueue(): Promise<void> {
     if (this.isProcessing) {
       console.log('[TaskQueue] 队列正在处理中，跳过')
@@ -323,33 +401,39 @@ class TaskQueueManager {
           break
         }
 
-        const accountStatus = await this.checkAccountStatus()
-        
-        if (!accountStatus.success) {
-          consecutiveErrors++
-          console.error(`[TaskQueue] 获取账户状态失败 (${consecutiveErrors}/${maxConsecutiveErrors}):`, accountStatus.error)
+        const nextTask = pendingTasks[0]
+        const localActiveCount = this.activeTasks.size
+        let effectiveRunning = localActiveCount
+
+        if (nextTask.demoScenario) {
+          consecutiveErrors = 0
+          console.log(`[TaskQueue] 本地演示任务并发检查 - 活跃: ${localActiveCount}, 最大并发: ${this.maxConcurrent}`)
+        } else {
+          const accountStatus = await this.checkAccountStatus()
           
-          if (consecutiveErrors >= maxConsecutiveErrors) {
-            console.error('[TaskQueue] 连续获取账户状态失败次数过多，停止处理')
-            for (const task of pendingTasks) {
-              task.status = 'error'
-              task.result = { success: false, error: '无法获取账户状态，请检查网络连接和API配置' }
-              this.notifyTaskListeners(task)
+          if (!accountStatus.success) {
+            consecutiveErrors++
+            console.error(`[TaskQueue] 获取账户状态失败 (${consecutiveErrors}/${maxConsecutiveErrors}):`, accountStatus.error)
+
+            if (consecutiveErrors >= maxConsecutiveErrors) {
+              console.error('[TaskQueue] 连续获取账户状态失败次数过多，停止处理')
+              for (const task of pendingTasks.filter(t => !t.demoScenario)) {
+                task.status = 'error'
+                task.result = { success: false, error: '无法获取账户状态，请检查网络连接和API配置' }
+                this.notifyTaskListeners(task)
+              }
+              continue
             }
-            break
+
+            await new Promise(resolve => setTimeout(resolve, 5000))
+            continue
           }
           
-          await new Promise(resolve => setTimeout(resolve, 5000))
-          continue
+          consecutiveErrors = 0
+          const currentRunning = accountStatus.currentTaskCounts ?? 0
+          effectiveRunning = Math.max(currentRunning, localActiveCount)
+          console.log(`[TaskQueue] 当前后台运行任务数: ${currentRunning}, 本地活跃任务: ${localActiveCount}, 最大并发: ${this.maxConcurrent}`)
         }
-        
-        consecutiveErrors = 0
-
-        const currentRunning = accountStatus.currentTaskCounts ?? 0
-        const localActiveCount = this.activeTasks.size
-        console.log(`[TaskQueue] 当前后台运行任务数: ${currentRunning}, 本地活跃任务: ${localActiveCount}, 最大并发: ${this.maxConcurrent}`)
-
-        const effectiveRunning = Math.max(currentRunning, localActiveCount)
         
         if (effectiveRunning >= this.maxConcurrent) {
           console.log(`[TaskQueue] 已达到最大并发数 (${effectiveRunning}/${this.maxConcurrent})，等待中...`)
@@ -360,7 +444,6 @@ class TaskQueueManager {
           break
         }
 
-        const nextTask = pendingTasks[0]
         console.log(`[TaskQueue] 准备执行任务: ${nextTask.id}, workItemId: ${nextTask.workItemId}`)
         
         this.activeTasks.set(nextTask.id, true)
@@ -375,7 +458,9 @@ class TaskQueueManager {
   }
 
   private async executeTask(task: QueuedTask): Promise<void> {
-    if (!this.service) {
+    const service = this.service
+
+    if (!task.demoScenario && !service) {
       task.status = 'error'
       task.result = { success: false, error: 'RunningHub 服务未配置' }
       this.activeTasks.delete(task.id)
@@ -404,7 +489,7 @@ class TaskQueueManager {
         
         if (checkCancelled()) {
           console.log(`[TaskQueue] 任务在提交后立即被取消，尝试取消后台任务`)
-          this.service!.cancelTask(backendTaskId).catch(err => {
+          service?.cancelTask(backendTaskId).catch(err => {
             console.error(`[TaskQueue] 取消后台任务失败:`, err)
           })
         }
@@ -419,8 +504,12 @@ class TaskQueueManager {
         return
       }
 
-      if (task.type === 'image') {
-        result = await this.service.generateImage(
+      if (task.demoScenario) {
+        result = await this.executeDemoTask(task, checkCancelled)
+      } else if (!service) {
+        result = { success: false, error: 'RunningHub 服务未配置' }
+      } else if (task.type === 'image') {
+        result = await service.generateImage(
           task.mapping,
           task.params as Parameters<RunningHubService['generateImage']>[1],
           task.onProgress,
@@ -428,7 +517,7 @@ class TaskQueueManager {
           onTaskSubmitted
         )
       } else if (task.type === 'video') {
-        result = await this.service.generateVideo(
+        result = await service.generateVideo(
           task.mapping,
           task.params as Parameters<RunningHubService['generateVideo']>[1],
           task.onProgress,
@@ -436,14 +525,14 @@ class TaskQueueManager {
           onTaskSubmitted
         )
       } else if (task.type === 'viewAngle') {
-        const submitResult = await this.service.submitViewAngleTask(
+        const submitResult = await service.submitViewAngleTask(
           task.mapping,
           task.params as Parameters<RunningHubService['submitViewAngleTask']>[1]
         )
         
         if (submitResult.success && submitResult.taskId) {
           task.backendTaskId = submitResult.taskId
-          result = await this.service.waitForCompletion(
+          result = await service.waitForCompletion(
             submitResult.taskId,
             task.onProgress,
             5000,

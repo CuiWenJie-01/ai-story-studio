@@ -76,6 +76,16 @@ const NINE_GRID_MAPPING: RunningHubApiMapping = {
   ],
 }
 
+const DEMO_MAPPING: RunningHubApiMapping = {
+  id: 'local-demo',
+  name: '本地演示任务',
+  appId: 'local-demo',
+  type: 'image',
+  nodeInfoList: [],
+}
+
+const isDemoResultUrl = (url?: string): boolean => Boolean(url?.startsWith('demo://'))
+
 export function clearAllLibraryCaches() {
   libraryCache.clear()
   imageCache.clear()
@@ -720,17 +730,7 @@ const WorkCard = ({ item, isActive, onClick }: WorkCardProps) => {
     })
   }, [item.id, updateWorkItem])
 
-  const handleQueueTaskComplete = useCallback(async (queuedTask: { 
-    id: string
-    workItemId: string
-    type: 'image' | 'video' | 'viewAngle'
-    result?: {
-      success: boolean
-      taskId?: string
-      outputUrl?: string
-      error?: string
-    }
-  }) => {
+  const handleQueueTaskComplete = useCallback(async (queuedTask: QueuedTask) => {
     if (queuedTask.workItemId !== item.id) {
       console.log(`[WorkCard] 任务完成回调不属于当前工作项，跳过: taskId=${queuedTask.id}, workItemId=${queuedTask.workItemId}, 当前item.id=${item.id}`)
       return
@@ -787,6 +787,44 @@ const WorkCard = ({ item, isActive, onClick }: WorkCardProps) => {
       if (!currentItem) {
         console.error('[handleQueueTaskComplete] 找不到对应的 workItem, workItemId:', workItemId)
         cleanup()
+        return
+      }
+
+      if (queuedTask.result.demo) {
+        const timestamp = Date.now()
+        const demoMessage = queuedTask.demoScenario === 'recover'
+          ? '本地演示完成：已模拟异常并自动恢复'
+          : '本地演示任务完成'
+
+        if (queuedTask.type === 'image') {
+          const generatedImage: GeneratedImage = {
+            id: `demo-image-${timestamp}`,
+            url: outputUrl,
+            timestamp,
+            prompt: currentItem.prompt,
+            referenceImages: currentItem.referenceImages.map(image => image.preview),
+          }
+          updateWorkItem(currentItem.id, {
+            generatedImage,
+            generationState: { status: 'completed', progress: 100, message: demoMessage },
+            currentTaskId: undefined,
+          })
+        } else if (queuedTask.type === 'video') {
+          const generatedVideo: GeneratedVideo = {
+            id: `demo-video-${timestamp}`,
+            url: outputUrl,
+            timestamp,
+            prompt: currentItem.prompt,
+            firstFrame: currentItem.firstFrame?.preview || '',
+            lastFrame: currentItem.lastFrame?.preview || '',
+            duration: currentItem.duration,
+          }
+          updateWorkItem(currentItem.id, {
+            generatedVideo,
+            generationState: { status: 'completed', progress: 100, message: demoMessage },
+            currentTaskId: undefined,
+          })
+        }
         return
       }
 
@@ -992,7 +1030,9 @@ const WorkCard = ({ item, isActive, onClick }: WorkCardProps) => {
             console.log(`[WorkCard] 任务完成，准备处理结果: ${myTask.result.outputUrl}`)
             handleQueueTaskComplete(myTask)
             const successTitle = `镜头 #${item.shotNumber} 生成成功`
-            const successMsg = isImage ? '图像已生成' : '视频已生成'
+            const successMsg = myTask.result.demo
+              ? `本地模拟${isImage ? '图像' : '视频'}已生成（未调用 API）`
+              : (isImage ? '图像已生成' : '视频已生成')
             addToast({
               type: 'success',
               title: successTitle,
@@ -1042,11 +1082,11 @@ const WorkCard = ({ item, isActive, onClick }: WorkCardProps) => {
             currentTaskId: undefined,
           })
           break
-        case 'error':
+        case 'error': {
           const errorMessage = myTask.result?.error || '生成失败'
           updateWorkItem(item.id, {
             generationState: {
-              status: 'idle',
+              status: 'error',
               progress: 0,
               message: errorMessage,
               error: myTask.result?.error,
@@ -1067,6 +1107,7 @@ const WorkCard = ({ item, isActive, onClick }: WorkCardProps) => {
             shotNumber: String(item.shotNumber),
           })
           break
+        }
       }
     }
     
@@ -1174,7 +1215,7 @@ const WorkCard = ({ item, isActive, onClick }: WorkCardProps) => {
       console.log(`[Generate] 已清除镜头 ${item.shotNumber} 的图生图结果、视频首帧和对口型首帧`)
     }
 
-    const isQueued = await taskQueueManager.willBeQueuedAsync()
+    const isQueued = await taskQueueManager.willBeQueuedAsync(settings.demoMode)
 
     updateWorkItem(item.id, {
       generationState: { 
@@ -1185,7 +1226,35 @@ const WorkCard = ({ item, isActive, onClick }: WorkCardProps) => {
     })
 
     try {
-      if (apiProvider === 'runninghub') {
+      if (settings.demoMode) {
+        taskQueueManager.setMaxConcurrent(settings.maxConcurrent)
+
+        const tempTaskId = `demo-temp-${Date.now()}-${Math.random().toString(36).slice(2)}`
+        updateWorkItem(item.id, { currentTaskId: tempTaskId })
+
+        const taskId = await taskQueueManager.addToQueue(
+          item.id,
+          isImage ? 'image' : 'video',
+          { ...DEMO_MAPPING, type: isImage ? 'image' : 'video' },
+          { text: finalPrompt },
+          (progress, message) => {
+            const currentItem = useAppStore.getState().workItems.find(workItem => workItem.id === item.id)
+            if (currentItem?.currentTaskId) {
+              updateWorkItem(item.id, {
+                generationState: {
+                  status: 'processing',
+                  progress,
+                  message,
+                },
+              })
+            }
+          },
+          { demoScenario: settings.demoScenario }
+        )
+
+        updateWorkItem(item.id, { currentTaskId: taskId })
+        console.log(`[Generate] 本地演示任务已加入队列: ${taskId}, 场景: ${settings.demoScenario}`)
+      } else if (apiProvider === 'runninghub') {
         const config = apiConfigs.runninghub
 
         if (!config.apiKey) {
@@ -2724,7 +2793,7 @@ const WorkCard = ({ item, isActive, onClick }: WorkCardProps) => {
         shotNumber: String(item.shotNumber),
       })
     }
-  }, [item, isImage, isGenerating, imageApiProvider, videoApiProvider, apiConfigs.runninghub, apiConfigs.gemini12ai, apiConfigs.yunwu, apiConfigs.volcark, apiConfigs.jimeng, runningHubMappings, runningHubImageMappingId, runningHubVideoMappingId, activeTask, updateWorkItem, settings.maxConcurrent, batchUpdateWorkItems])
+  }, [item, isImage, isGenerating, imageApiProvider, videoApiProvider, apiConfigs.runninghub, apiConfigs.gemini12ai, apiConfigs.yunwu, apiConfigs.volcark, apiConfigs.jimeng, runningHubMappings, runningHubImageMappingId, runningHubVideoMappingId, activeTask, updateWorkItem, settings.maxConcurrent, settings.demoMode, settings.demoScenario, batchUpdateWorkItems])
 
   const handleImagePreview = useCallback((e: React.MouseEvent, image: string) => {
     e.stopPropagation()
@@ -3287,6 +3356,7 @@ const WorkCard = ({ item, isActive, onClick }: WorkCardProps) => {
               {isImage ? <Image size={16} /> : <Video size={16} />}
             </span>
             <span className={styles.shotNumber}>#{displayShotNumber}</span>
+            {settings.demoMode && <span className={styles.demoBadge}>本地演示</span>}
           </div>
           {item.excelData?.novelText && (
             <p className={styles.novelText}>{item.excelData.novelText}</p>
@@ -3648,19 +3718,27 @@ const WorkCard = ({ item, isActive, onClick }: WorkCardProps) => {
             <div className={styles.resultArea}>
               {isImage ? (
                 item.generatedImage ? (
-                  <div className={styles.resultPreview} onDoubleClick={(e) => handleImagePreview(e, item.generatedImage!.url)}>
-                    <LazyImage 
-                      src={item.generatedImage.url} 
-                      thumbnailSrc={item.generatedImage.thumbnailUrl}
-                      alt="Generated" 
-                      timestamp={item.generatedImage.timestamp}
-                    />
-                    <div className={styles.resultActions}>
-                      <button className={styles.resultBtn} title="保存" onClick={(e) => { e.stopPropagation(); handleDownloadFile(item.generatedImage!.url, 'image') }}>
-                        <Download size={14} />
-                      </button>
+                  isDemoResultUrl(item.generatedImage.url) ? (
+                    <div className={styles.demoResult}>
+                      <Image size={38} />
+                      <strong>本地模拟图片结果</strong>
+                      <span>未调用付费 API</span>
                     </div>
-                  </div>
+                  ) : (
+                    <div className={styles.resultPreview} onDoubleClick={(e) => handleImagePreview(e, item.generatedImage!.url)}>
+                      <LazyImage
+                        src={item.generatedImage.url}
+                        thumbnailSrc={item.generatedImage.thumbnailUrl}
+                        alt="Generated"
+                        timestamp={item.generatedImage.timestamp}
+                      />
+                      <div className={styles.resultActions}>
+                        <button className={styles.resultBtn} title="保存" onClick={(e) => { e.stopPropagation(); handleDownloadFile(item.generatedImage!.url, 'image') }}>
+                          <Download size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  )
                 ) : (
                   <div className={styles.emptyResult}>
                     <Image size={32} />
@@ -3669,36 +3747,44 @@ const WorkCard = ({ item, isActive, onClick }: WorkCardProps) => {
                 )
               ) : (
                 item.generatedVideo ? (
-                  <div className={styles.resultPreview}>
-                    <video 
-                      key={item.generatedVideo.id}
-                      src={item.generatedVideo.url.match(/^[A-Za-z]:[/\\]/) ? convertFileSrc(item.generatedVideo.url) : item.generatedVideo.url} 
-                      controls 
-                    />
-                    <div className={styles.resultActions}>
-                      {item.generatedVideo.originalUrl && amkApiKey && (
-                        <button
-                          className={styles.resultBtn}
-                          title="画质增强"
-                          onClick={(e) => { e.stopPropagation(); handleEnhanceVideo() }}
-                        >
-                          <Sparkles size={14} />
-                        </button>
-                      )}
-                      <button className={styles.resultBtn} title="保存" onClick={(e) => { e.stopPropagation(); handleDownloadFile(item.generatedVideo!.url, 'video') }}>
-                        <Download size={14} />
-                      </button>
+                  isDemoResultUrl(item.generatedVideo.url) ? (
+                    <div className={styles.demoResult}>
+                      <Video size={38} />
+                      <strong>本地模拟视频结果</strong>
+                      <span>未调用付费 API</span>
                     </div>
-                    {enhanceMenuOpen && (
-                      <div className={styles.enhanceMenu} onClick={(e) => e.stopPropagation()}>
-                        <div className={styles.enhanceMenuTitle}>选择目标分辨率</div>
-                        <button onClick={() => handleEnhanceSelect('1080p')}>1080p</button>
-                        <button onClick={() => handleEnhanceSelect('2k')}>2K</button>
-                        <button onClick={() => handleEnhanceSelect('4k')}>4K</button>
-                        <button onClick={() => setEnhanceMenuOpen(false)} className={styles.enhanceMenuCancel}>取消</button>
+                  ) : (
+                    <div className={styles.resultPreview}>
+                      <video
+                        key={item.generatedVideo.id}
+                        src={item.generatedVideo.url.match(/^[A-Za-z]:[/\\]/) ? convertFileSrc(item.generatedVideo.url) : item.generatedVideo.url}
+                        controls
+                      />
+                      <div className={styles.resultActions}>
+                        {item.generatedVideo.originalUrl && amkApiKey && (
+                          <button
+                            className={styles.resultBtn}
+                            title="画质增强"
+                            onClick={(e) => { e.stopPropagation(); handleEnhanceVideo() }}
+                          >
+                            <Sparkles size={14} />
+                          </button>
+                        )}
+                        <button className={styles.resultBtn} title="保存" onClick={(e) => { e.stopPropagation(); handleDownloadFile(item.generatedVideo!.url, 'video') }}>
+                          <Download size={14} />
+                        </button>
                       </div>
-                    )}
-                  </div>
+                      {enhanceMenuOpen && (
+                        <div className={styles.enhanceMenu} onClick={(e) => e.stopPropagation()}>
+                          <div className={styles.enhanceMenuTitle}>选择目标分辨率</div>
+                          <button onClick={() => handleEnhanceSelect('1080p')}>1080p</button>
+                          <button onClick={() => handleEnhanceSelect('2k')}>2K</button>
+                          <button onClick={() => handleEnhanceSelect('4k')}>4K</button>
+                          <button onClick={() => setEnhanceMenuOpen(false)} className={styles.enhanceMenuCancel}>取消</button>
+                        </div>
+                      )}
+                    </div>
+                  )
                 ) : (
                   <div className={styles.emptyResult}>
                     <Video size={32} />

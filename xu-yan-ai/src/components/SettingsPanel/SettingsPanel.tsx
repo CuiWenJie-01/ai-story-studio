@@ -24,7 +24,7 @@ const SettingsPanelContent: React.FC<{
   const [localSettings, setLocalSettings] = useState(initialSettings)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
 
-  const showConcurrentSetting = imageApiProvider === 'runninghub' || videoApiProvider === 'runninghub'
+  const showConcurrentSetting = localSettings.demoMode || imageApiProvider === 'runninghub' || videoApiProvider === 'runninghub'
 
   const handleSave = () => {
     setSaveStatus('saving')
@@ -86,10 +86,47 @@ const SettingsPanelContent: React.FC<{
           </div>
         </div>
 
+        <div className={`${styles.section} ${localSettings.demoMode ? styles.demoSectionActive : ''}`}>
+          <h3>本地演示模式</h3>
+          <div className={styles.field}>
+            <label className={styles.checkboxLabel}>
+              <input
+                type="checkbox"
+                checked={localSettings.demoMode}
+                onChange={(e) => setLocalSettings({
+                  ...localSettings,
+                  demoMode: e.target.checked,
+                })}
+              />
+              <span>启用本地模拟任务（不调用 API、不产生费用）</span>
+            </label>
+            <p className={styles.fieldHint}>
+              模拟任务仍会经过真实的任务队列、并发控制、状态订阅和通知历史。
+            </p>
+          </div>
+
+          {localSettings.demoMode && (
+            <div className={styles.field}>
+              <label>演示场景</label>
+              <select
+                value={localSettings.demoScenario}
+                onChange={(e) => setLocalSettings({
+                  ...localSettings,
+                  demoScenario: e.target.value as AppSettings['demoScenario'],
+                })}
+              >
+                <option value="success">正常完成</option>
+                <option value="recover">网络异常后自动恢复</option>
+                <option value="failure">重试后最终失败</option>
+              </select>
+            </div>
+          )}
+        </div>
+
         {showConcurrentSetting && (
           <>
             <div className={styles.section}>
-              <h3>并发设置 (RunningHub)</h3>
+              <h3>并发设置 {localSettings.demoMode ? '(本地演示)' : '(RunningHub)'}</h3>
               <div className={styles.field}>
                 <label>最大并发数 (1-20)</label>
                 <input
@@ -103,7 +140,7 @@ const SettingsPanelContent: React.FC<{
                   })}
                 />
                 <p className={styles.fieldHint}>
-                  RunningHub API 的最大并发任务数
+                  {localSettings.demoMode ? '本地演示队列的最大并发任务数' : 'RunningHub API 的最大并发任务数'}
                 </p>
               </div>
             </div>

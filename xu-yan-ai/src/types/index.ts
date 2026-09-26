@@ -56,6 +56,8 @@ export type ThemeMode = 'light' | 'dark' | 'system'
 
 export type GenerationStatus = 'idle' | 'pending' | 'processing' | 'completed' | 'error'
 
+export type DemoScenario = 'success' | 'recover' | 'failure'
+
 export interface GenerationState {
   status: GenerationStatus
   progress: number
@@ -75,6 +77,8 @@ export interface AppSettings {
   analysisApi: 'yunwu' | 'yunwu3' | 'deepseek' | 'deepseek-v3.2' | 'gemini-3.1-flash-lite' | 'gemini-3-flash' | 'gemini-3-pro' | 'doubao-seed-2-0-lite' | 'doubao-seed-2-0-mini'
   enhanceScene: 'common' | 'ugc' | 'short_series' | 'aigc'
   compressReferenceImages: boolean
+  demoMode: boolean
+  demoScenario: DemoScenario
 }
 
 export interface HistoryRecord {

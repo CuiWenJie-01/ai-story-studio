@@ -172,6 +172,8 @@ const defaultSettings: AppSettings = {
   analysisApi: 'yunwu',
   enhanceScene: 'short_series',
   compressReferenceImages: false,
+  demoMode: false,
+  demoScenario: 'recover',
 }
 
 const defaultSeedance2Data: Seedance2Data = {
@@ -1633,6 +1635,8 @@ export const useAppStore = create<AppState>()(
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {
+          state.settings = { ...defaultSettings, ...state.settings }
+
           const allProviders: ApiProvider[] = ['kling', 'runninghub', 'jimeng', 'minimax', 'gemini12ai', 'yunwu', 'volcark']
           const currentConfigs = state.apiConfigs
           let needsUpdate = false

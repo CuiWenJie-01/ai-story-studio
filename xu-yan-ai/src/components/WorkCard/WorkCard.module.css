@@ -531,6 +531,43 @@
   opacity: 1;
 }
 
+.demoResult {
+  width: 100%;
+  height: 100%;
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  border: 1px dashed var(--color-accent);
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--color-accent-light), var(--color-bg-secondary));
+  color: var(--color-accent);
+  text-align: center;
+}
+
+.demoResult strong {
+  font-size: 13px;
+}
+
+.demoResult span {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.demoBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .resultBtn {
   width: 28px;
   height: 28px;
